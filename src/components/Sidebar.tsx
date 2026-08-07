@@ -27,6 +27,7 @@ import {
 import { useMapStore } from "@/store/mapStore";
 import { exportGameZip } from "@/lib/backup";
 import { exportGameImage } from "@/lib/exportImage";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 
 interface NameDialogState {
@@ -112,6 +113,9 @@ export function Sidebar() {
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <Map className="size-5" />
         <span className="font-semibold">Game Map Maker</span>
+        <div className="ml-auto">
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 px-3 py-2">
