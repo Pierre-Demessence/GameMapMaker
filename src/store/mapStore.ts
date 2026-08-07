@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as db from "@/lib/db";
-import type { Game, ImageRec, Tile } from "@/lib/types";
+import type { CropKey, Game, ImageRec, Tile } from "@/lib/types";
 
 let initStarted = false;
 
@@ -43,6 +43,7 @@ interface MapState {
   renameGame: (id: string, name: string) => Promise<void>;
   deleteGame: (id: string) => Promise<void>;
   selectGame: (id: string) => Promise<void>;
+  setCrop: (id: string, crop: Partial<Record<CropKey, number>>) => Promise<void>;
   addImageAt: (blob: Blob, targetGx: number, targetGy: number, name?: string) => Promise<void>;
   moveTile: (tileId: string, gx: number, gy: number) => Promise<void>;
   deleteTile: (tileId: string) => Promise<void>;
@@ -86,6 +87,14 @@ export const useMapStore = create<MapState>((set, get) => ({
     const game = get().games.find((g) => g.id === id);
     if (!game) return;
     const updated: Game = { ...game, name: name.trim() || game.name, updatedAt: Date.now() };
+    await db.putGame(updated);
+    set((s) => ({ games: s.games.map((g) => (g.id === id ? updated : g)) }));
+  },
+
+  setCrop: async (id, crop) => {
+    const game = get().games.find((g) => g.id === id);
+    if (!game) return;
+    const updated: Game = { ...game, ...crop, updatedAt: Date.now() };
     await db.putGame(updated);
     set((s) => ({ games: s.games.map((g) => (g.id === id ? updated : g)) }));
   },

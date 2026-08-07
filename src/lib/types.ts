@@ -3,9 +3,15 @@ export interface Game {
   name: string;
   cellWidth: number;
   cellHeight: number;
+  cropTop?: number;
+  cropRight?: number;
+  cropBottom?: number;
+  cropLeft?: number;
   createdAt: number;
   updatedAt: number;
 }
+
+export type CropKey = "cropTop" | "cropRight" | "cropBottom" | "cropLeft";
 
 export interface ImageRec {
   id: string;

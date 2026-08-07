@@ -9,6 +9,7 @@ import {
 import { Maximize2 } from "lucide-react";
 import { useMapStore } from "@/store/mapStore";
 import { Button } from "@/components/ui/button";
+import { CropControl } from "@/components/CropControl";
 import { cn } from "@/lib/utils";
 import type { Tile } from "@/lib/types";
 
@@ -66,8 +67,14 @@ export function GridCanvas() {
   const deleteTile = useMapStore((s) => s.deleteTile);
 
   const activeGame = games.find((g) => g.id === activeGameId) ?? null;
-  const cellW = activeGame?.cellWidth ?? 0;
-  const cellH = activeGame?.cellHeight ?? 0;
+  const imgW = activeGame?.cellWidth ?? 0;
+  const imgH = activeGame?.cellHeight ?? 0;
+  const cropL = activeGame?.cropLeft ?? 0;
+  const cropT = activeGame?.cropTop ?? 0;
+  const cropR = activeGame?.cropRight ?? 0;
+  const cropB = activeGame?.cropBottom ?? 0;
+  const cellW = imgW > 0 ? Math.max(1, imgW - cropL - cropR) : 0;
+  const cellH = imgH > 0 ? Math.max(1, imgH - cropT - cropB) : 0;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<View>({ x: 48, y: 48, scale: 1 });
@@ -327,7 +334,8 @@ export function GridCanvas() {
                   src={url}
                   alt=""
                   draggable={false}
-                  className="pointer-events-none block h-full w-full object-cover"
+                  className="pointer-events-none absolute max-w-none"
+                  style={{ left: -cropL, top: -cropT, width: imgW, height: imgH }}
                 />
               )}
             </div>
@@ -358,6 +366,7 @@ export function GridCanvas() {
           <Button variant="secondary" size="sm" onClick={fitToView}>
             <Maximize2 /> Fit
           </Button>
+          <CropControl />
         </div>
       )}
     </div>
