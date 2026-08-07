@@ -49,7 +49,9 @@ export function GridCanvas() {
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [hadTilesOnLoad] = useState(() => tiles.length > 0);
   const interaction = useRef<Interaction>({ mode: "none" });
+  const didFitRef = useRef(false);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -118,6 +120,41 @@ export function GridCanvas() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedId, deleteTile]);
+
+  // Fit the whole map into view once, when a game that already has rooms is loaded.
+  useEffect(() => {
+    if (didFitRef.current || !hadTilesOnLoad) return;
+    const el = containerRef.current;
+    if (!el || cellW <= 0 || cellH <= 0 || tiles.length === 0) return;
+    const frame = requestAnimationFrame(() => {
+      didFitRef.current = true;
+      const rect = el.getBoundingClientRect();
+      let minGx = Infinity;
+      let minGy = Infinity;
+      let maxGx = -Infinity;
+      let maxGy = -Infinity;
+      for (const t of tiles) {
+        minGx = Math.min(minGx, t.gx);
+        minGy = Math.min(minGy, t.gy);
+        maxGx = Math.max(maxGx, t.gx);
+        maxGy = Math.max(maxGy, t.gy);
+      }
+      const worldW = (maxGx - minGx + 1) * cellW;
+      const worldH = (maxGy - minGy + 1) * cellH;
+      const pad = 64;
+      const scale = Math.min(
+        MAX_SCALE,
+        Math.max(
+          MIN_SCALE,
+          Math.min((rect.width - pad) / worldW, (rect.height - pad) / worldH),
+        ),
+      );
+      const cx = minGx * cellW + worldW / 2;
+      const cy = minGy * cellH + worldH / 2;
+      setView({ scale, x: rect.width / 2 - cx * scale, y: rect.height / 2 - cy * scale });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [tiles, cellW, cellH, hadTilesOnLoad]);
 
   const screenToWorld = (clientX: number, clientY: number) => {
     const el = containerRef.current;
