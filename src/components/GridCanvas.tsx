@@ -6,7 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { Maximize2 } from "lucide-react";
 import { useMapStore } from "@/store/mapStore";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Tile } from "@/lib/types";
 
@@ -24,6 +26,35 @@ type Interaction =
   | { mode: "none" }
   | { mode: "pan"; pointerId: number; lastX: number; lastY: number }
   | { mode: "drag"; pointerId: number; tileId: string; grabX: number; grabY: number };
+
+function computeFitView(
+  rect: { width: number; height: number },
+  tiles: Tile[],
+  cellW: number,
+  cellH: number,
+): View | null {
+  if (cellW <= 0 || cellH <= 0 || tiles.length === 0) return null;
+  let minGx = Infinity;
+  let minGy = Infinity;
+  let maxGx = -Infinity;
+  let maxGy = -Infinity;
+  for (const t of tiles) {
+    minGx = Math.min(minGx, t.gx);
+    minGy = Math.min(minGy, t.gy);
+    maxGx = Math.max(maxGx, t.gx);
+    maxGy = Math.max(maxGy, t.gy);
+  }
+  const worldW = (maxGx - minGx + 1) * cellW;
+  const worldH = (maxGy - minGy + 1) * cellH;
+  const pad = 64;
+  const scale = Math.min(
+    MAX_SCALE,
+    Math.max(MIN_SCALE, Math.min((rect.width - pad) / worldW, (rect.height - pad) / worldH)),
+  );
+  const cx = minGx * cellW + worldW / 2;
+  const cy = minGy * cellH + worldH / 2;
+  return { scale, x: rect.width / 2 - cx * scale, y: rect.height / 2 - cy * scale };
+}
 
 export function GridCanvas() {
   const games = useMapStore((s) => s.games);
@@ -128,30 +159,8 @@ export function GridCanvas() {
     if (!el || cellW <= 0 || cellH <= 0 || tiles.length === 0) return;
     const frame = requestAnimationFrame(() => {
       didFitRef.current = true;
-      const rect = el.getBoundingClientRect();
-      let minGx = Infinity;
-      let minGy = Infinity;
-      let maxGx = -Infinity;
-      let maxGy = -Infinity;
-      for (const t of tiles) {
-        minGx = Math.min(minGx, t.gx);
-        minGy = Math.min(minGy, t.gy);
-        maxGx = Math.max(maxGx, t.gx);
-        maxGy = Math.max(maxGy, t.gy);
-      }
-      const worldW = (maxGx - minGx + 1) * cellW;
-      const worldH = (maxGy - minGy + 1) * cellH;
-      const pad = 64;
-      const scale = Math.min(
-        MAX_SCALE,
-        Math.max(
-          MIN_SCALE,
-          Math.min((rect.width - pad) / worldW, (rect.height - pad) / worldH),
-        ),
-      );
-      const cx = minGx * cellW + worldW / 2;
-      const cy = minGy * cellH + worldH / 2;
-      setView({ scale, x: rect.width / 2 - cx * scale, y: rect.height / 2 - cy * scale });
+      const next = computeFitView(el.getBoundingClientRect(), tiles, cellW, cellH);
+      if (next) setView(next);
     });
     return () => cancelAnimationFrame(frame);
   }, [tiles, cellW, cellH, hadTilesOnLoad]);
@@ -171,6 +180,13 @@ export function GridCanvas() {
     if (cellW <= 0 || cellH <= 0) return { gx: 0, gy: 0 };
     const w = screenToWorld(clientX, clientY);
     return { gx: Math.floor(w.x / cellW), gy: Math.floor(w.y / cellH) };
+  };
+
+  const fitToView = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    const next = computeFitView(el.getBoundingClientRect(), tiles, cellW, cellH);
+    if (next) setView(next);
   };
 
   const onBackgroundPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -333,6 +349,17 @@ export function GridCanvas() {
         {activeGame.name}
         {cellW > 0 ? ` · ${cellW}×${cellH}` : " · empty"} · {Math.round(view.scale * 100)}%
       </div>
+
+      {tiles.length > 0 && (
+        <div
+          className="absolute top-3 right-3 flex gap-1"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Button variant="secondary" size="sm" onClick={fitToView}>
+            <Maximize2 /> Fit
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
