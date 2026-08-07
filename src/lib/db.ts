@@ -29,6 +29,10 @@ export async function listGames(): Promise<Game[]> {
   return (await getDB()).getAll("games");
 }
 
+export async function getGame(id: string): Promise<Game | undefined> {
+  return (await getDB()).get("games", id);
+}
+
 export async function putGame(game: Game): Promise<void> {
   await (await getDB()).put("games", game);
 }

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Map, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { type ChangeEvent, useRef, useState } from "react";
+import { Download, Map, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useMapStore } from "@/store/mapStore";
+import { exportGameZip } from "@/lib/backup";
 import { cn } from "@/lib/utils";
 
 interface NameDialogState {
@@ -31,9 +32,12 @@ export function Sidebar() {
   const createGame = useMapStore((s) => s.createGame);
   const renameGame = useMapStore((s) => s.renameGame);
   const deleteGame = useMapStore((s) => s.deleteGame);
+  const importBackup = useMapStore((s) => s.importBackup);
 
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const submitName = async () => {
     if (!nameDialog) return;
@@ -47,6 +51,31 @@ export function Sidebar() {
     setDeleteId(null);
   };
 
+  const handleExport = async (id: string) => {
+    const result = await exportGameZip(id);
+    if (!result) return;
+    const url = URL.createObjectURL(result.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportError(null);
+    try {
+      await importBackup(file);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    }
+  };
+
   const deleteTarget = games.find((g) => g.id === deleteId);
 
   return (
@@ -56,10 +85,31 @@ export function Sidebar() {
         <span className="font-semibold">Game Map Maker</span>
       </div>
 
-      <div className="px-3 py-2">
-        <Button className="w-full" onClick={() => setNameDialog({ mode: "create", value: "" })}>
-          <Plus /> New game
-        </Button>
+      <div className="flex flex-col gap-2 px-3 py-2">
+        <div className="flex gap-2">
+          <Button
+            className="flex-1"
+            onClick={() => setNameDialog({ mode: "create", value: "" })}
+          >
+            <Plus /> New game
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            title="Import backup (.zip)"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload />
+          </Button>
+        </div>
+        {importError && <p className="text-xs text-destructive">{importError}</p>}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".zip,application/zip"
+          className="hidden"
+          onChange={(e) => void onImportFile(e)}
+        />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
@@ -105,6 +155,9 @@ export function Sidebar() {
                         }
                       >
                         <Pencil /> Rename
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void handleExport(g.id)}>
+                        <Download /> Export backup
                       </DropdownMenuItem>
                       <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(g.id)}>
                         <Trash2 /> Delete

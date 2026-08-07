@@ -105,8 +105,8 @@ memory leaks.
 - [x] Prevent pan while dragging a tile.
 
 ### Phase 6 — Backup (zip)
-- [ ] Export active game to `.zip` (manifest + images).
-- [ ] Import `.zip` → create new game with images + tiles.
+- [x] Export active game to `.zip` (manifest + images).
+- [x] Import `.zip` → create new game with images + tiles.
 
 ### Phase 7 — Docs & polish
 - [ ] `README.md`, `docs/INDEX.md`, `docs/tech-stack.md`, `docs/codebase.md`,

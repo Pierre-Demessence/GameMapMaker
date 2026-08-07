@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as db from "@/lib/db";
+import { importGameZip } from "@/lib/backup";
 import type { CropKey, Game, ImageRec, Tile } from "@/lib/types";
 
 let initStarted = false;
@@ -47,6 +48,7 @@ interface MapState {
   addImageAt: (blob: Blob, targetGx: number, targetGy: number, name?: string) => Promise<void>;
   moveTile: (tileId: string, gx: number, gy: number) => Promise<void>;
   deleteTile: (tileId: string) => Promise<void>;
+  importBackup: (file: File) => Promise<void>;
 }
 
 export const useMapStore = create<MapState>((set, get) => ({
@@ -197,5 +199,13 @@ export const useMapStore = create<MapState>((set, get) => ({
       delete images[tile.imageId];
       return { tiles: s.tiles.filter((t) => t.id !== tileId), images, urls };
     });
+  },
+
+  importBackup: async (file) => {
+    const newGameId = await importGameZip(file);
+    const game = await db.getGame(newGameId);
+    if (!game) return;
+    set((s) => ({ games: [...s.games, game] }));
+    await get().selectGame(newGameId);
   },
 }));
