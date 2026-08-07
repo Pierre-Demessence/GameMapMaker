@@ -1,6 +1,6 @@
 # Game Map Maker — Implementation Plan
 
-**Status:** planning
+**Status:** done
 **Owner:** Pierre
 **Last updated:** 2026-08-07
 
@@ -109,10 +109,10 @@ memory leaks.
 - [x] Import `.zip` → create new game with images + tiles.
 
 ### Phase 7 — Docs & polish
-- [ ] `README.md`, `docs/INDEX.md`, `docs/tech-stack.md`, `docs/codebase.md`,
+- [x] `README.md`, `docs/INDEX.md`, `docs/tech-stack.md`, `docs/codebase.md`,
       `docs/features.md`, `docs/agent/README.md`.
-- [ ] Empty states + basic keyboard/pointer UX pass.
-- [ ] Peer-review pass, fix items, then move this plan to `docs/plans/done/`.
+- [x] Empty states + basic keyboard/pointer UX pass.
+- [x] Peer-review pass, fix items, then move this plan to `docs/plans/done/`.
 
 ## Open questions (non-blocking, can decide during build)
 
