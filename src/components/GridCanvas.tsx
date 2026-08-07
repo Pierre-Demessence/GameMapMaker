@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Maximize2 } from "lucide-react";
+import { Grid3x3, Maximize2 } from "lucide-react";
 import { useMapStore } from "@/store/mapStore";
 import { Button } from "@/components/ui/button";
 import { CropControl } from "@/components/CropControl";
@@ -15,7 +15,6 @@ import type { Tile } from "@/lib/types";
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 4;
-const GRID_SPAN = 6000;
 
 interface View {
   x: number;
@@ -88,8 +87,24 @@ export function GridCanvas() {
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [hadTilesOnLoad] = useState(() => tiles.length > 0);
+  const [showGrid, setShowGrid] = useState(() => localStorage.getItem("gmm.showGrid") === "1");
+  const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const interaction = useRef<Interaction>({ mode: "none" });
   const didFitRef = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem("gmm.showGrid", showGrid ? "1" : "0");
+  }, [showGrid]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setContainerSize({ w: el.clientWidth, h: el.clientHeight });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -279,21 +294,33 @@ export function GridCanvas() {
     );
   }
 
-  const gridLeft = -Math.ceil(GRID_SPAN / cellW) * cellW;
-  const gridTop = -Math.ceil(GRID_SPAN / cellH) * cellH;
-  const gridStyle: CSSProperties =
-    cellW > 0 && cellH > 0
-      ? {
-          left: gridLeft,
-          top: gridTop,
-          width: Math.ceil((2 * GRID_SPAN) / cellW) * cellW,
-          height: Math.ceil((2 * GRID_SPAN) / cellH) * cellH,
-          backgroundImage:
-            "linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
-          backgroundSize: `${cellW}px ${cellH}px`,
-          opacity: 0.5,
-        }
-      : {};
+  const gridLineW = Math.min(Math.min(cellW, cellH) / 4 || 1, 1.5 / view.scale);
+  let gridStyle: CSSProperties = {};
+  if (cellW > 0 && cellH > 0) {
+    const worldLeft = -view.x / view.scale;
+    const worldTop = -view.y / view.scale;
+    const worldRight = (containerSize.w - view.x) / view.scale;
+    const worldBottom = (containerSize.h - view.y) / view.scale;
+    const gLeft = (Math.floor(worldLeft / cellW) - 1) * cellW;
+    const gTop = (Math.floor(worldTop / cellH) - 1) * cellH;
+    const gRight = (Math.ceil(worldRight / cellW) + 1) * cellW;
+    const gBottom = (Math.ceil(worldBottom / cellH) + 1) * cellH;
+    gridStyle = {
+      left: gLeft,
+      top: gTop,
+      width: gRight - gLeft,
+      height: gBottom - gTop,
+      backgroundImage: `linear-gradient(to right, var(--border) ${gridLineW}px, transparent ${gridLineW}px), linear-gradient(to bottom, var(--border) ${gridLineW}px, transparent ${gridLineW}px)`,
+      backgroundSize: `${cellW}px ${cellH}px`,
+      opacity: 0.8,
+    };
+  }
+
+  // Overlap tiles by ~1 screen pixel so fractional-zoom rasterization leaves no seam,
+  // scaling the image so the cropped region still fills the (slightly larger) tile.
+  const bleed = 1 / view.scale;
+  const fx = cellW > 0 ? (cellW + bleed) / cellW : 1;
+  const fy = cellH > 0 ? (cellH + bleed) / cellH : 1;
 
   return (
     <div
@@ -310,9 +337,6 @@ export function GridCanvas() {
         className="absolute top-0 left-0 origin-top-left"
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
       >
-        {cellW > 0 && cellH > 0 && (
-          <div aria-hidden className="pointer-events-none absolute" style={gridStyle} />
-        )}
         {tiles.map((t) => {
           const dragging = dragTileId === t.id && dragPos !== null ? dragPos : null;
           const x = dragging ? dragging.x : t.gx * cellW;
@@ -327,7 +351,7 @@ export function GridCanvas() {
                 selectedId === t.id ? "z-10 outline-2 outline-primary" : "",
                 dragging ? "z-20 opacity-90" : "",
               )}
-              style={{ left: x, top: y, width: cellW, height: cellH, cursor: "move" }}
+              style={{ left: x, top: y, width: cellW + bleed, height: cellH + bleed, cursor: "move" }}
             >
               {url && (
                 <img
@@ -335,12 +359,15 @@ export function GridCanvas() {
                   alt=""
                   draggable={false}
                   className="pointer-events-none absolute max-w-none"
-                  style={{ left: -cropL, top: -cropT, width: imgW, height: imgH }}
+                  style={{ left: -cropL * fx, top: -cropT * fy, width: imgW * fx, height: imgH * fy }}
                 />
               )}
             </div>
           );
         })}
+        {showGrid && cellW > 0 && cellH > 0 && (
+          <div aria-hidden className="pointer-events-none absolute" style={gridStyle} />
+        )}
       </div>
 
       {tiles.length === 0 && (
@@ -365,6 +392,14 @@ export function GridCanvas() {
         >
           <Button variant="secondary" size="sm" onClick={fitToView}>
             <Maximize2 /> Fit
+          </Button>
+          <Button
+            variant={showGrid ? "default" : "secondary"}
+            size="sm"
+            title="Toggle grid"
+            onClick={() => setShowGrid((v) => !v)}
+          >
+            <Grid3x3 /> Grid
           </Button>
           <CropControl />
         </div>
