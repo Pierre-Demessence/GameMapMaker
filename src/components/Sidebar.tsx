@@ -1,5 +1,14 @@
 import { type ChangeEvent, useRef, useState } from "react";
-import { Download, Map, MoreHorizontal, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import {
+  Download,
+  Image as ImageIcon,
+  Map,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useMapStore } from "@/store/mapStore";
 import { exportGameZip } from "@/lib/backup";
+import { exportGameImage } from "@/lib/exportImage";
 import { cn } from "@/lib/utils";
 
 interface NameDialogState {
@@ -51,17 +61,25 @@ export function Sidebar() {
     setDeleteId(null);
   };
 
-  const handleExport = async (id: string) => {
-    const result = await exportGameZip(id);
-    if (!result) return;
-    const url = URL.createObjectURL(result.blob);
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = result.filename;
+    anchor.download = filename;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (id: string) => {
+    const result = await exportGameZip(id);
+    if (result) downloadBlob(result.blob, result.filename);
+  };
+
+  const handleExportImage = async (id: string) => {
+    const result = await exportGameImage(id);
+    if (result) downloadBlob(result.blob, result.filename);
   };
 
   const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -158,6 +176,9 @@ export function Sidebar() {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => void handleExport(g.id)}>
                         <Download /> Export backup
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void handleExportImage(g.id)}>
+                        <ImageIcon /> Export image
                       </DropdownMenuItem>
                       <DropdownMenuItem variant="destructive" onClick={() => setDeleteId(g.id)}>
                         <Trash2 /> Delete
