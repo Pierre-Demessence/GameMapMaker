@@ -46,7 +46,7 @@ export function Sidebar() {
 
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const submitName = async () => {
@@ -69,28 +69,39 @@ export function Sidebar() {
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+    // Defer revoke so the browser has time to start the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   };
 
   const handleExport = async (id: string) => {
-    const result = await exportGameZip(id);
-    if (result) downloadBlob(result.blob, result.filename);
+    setErrorMsg(null);
+    try {
+      const result = await exportGameZip(id);
+      if (result) downloadBlob(result.blob, result.filename);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Export failed.");
+    }
   };
 
   const handleExportImage = async (id: string) => {
-    const result = await exportGameImage(id);
-    if (result) downloadBlob(result.blob, result.filename);
+    setErrorMsg(null);
+    try {
+      const result = await exportGameImage(id);
+      if (result) downloadBlob(result.blob, result.filename);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Export failed.");
+    }
   };
 
   const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setImportError(null);
+    setErrorMsg(null);
     try {
       await importBackup(file);
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Import failed.");
+      setErrorMsg(err instanceof Error ? err.message : "Import failed.");
     }
   };
 
@@ -120,7 +131,7 @@ export function Sidebar() {
             <Upload />
           </Button>
         </div>
-        {importError && <p className="text-xs text-destructive">{importError}</p>}
+        {errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
         <input
           ref={fileInputRef}
           type="file"

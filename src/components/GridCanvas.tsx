@@ -89,6 +89,7 @@ export function GridCanvas() {
   const [hadTilesOnLoad] = useState(() => tiles.length > 0);
   const [showGrid, setShowGrid] = useState(() => localStorage.getItem("gmm.showGrid") === "1");
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
+  const [error, setError] = useState<string | null>(null);
   const interaction = useRef<Interaction>({ mode: "none" });
   const didFitRef = useRef(false);
 
@@ -145,7 +146,12 @@ export function GridCanvas() {
           gx = Math.floor((rect.width / 2 - v.x) / v.scale / cellW);
           gy = Math.floor((rect.height / 2 - v.y) / v.scale / cellH);
         }
-        await addImageAt(file, gx, gy, "pasted");
+        try {
+          await addImageAt(file, gx, gy, "pasted");
+        } catch {
+          setError("Couldn't read that image.");
+          window.setTimeout(() => setError(null), 4000);
+        }
       }
     };
     window.addEventListener("paste", onPaste);
@@ -281,7 +287,12 @@ export function GridCanvas() {
     const base = cellAt(e.clientX, e.clientY);
     let offset = 0;
     for (const file of files) {
-      await addImageAt(file, base.gx + offset, base.gy, file.name);
+      try {
+        await addImageAt(file, base.gx + offset, base.gy, file.name);
+      } catch {
+        setError("Couldn't read that image.");
+        window.setTimeout(() => setError(null), 4000);
+      }
       offset++;
     }
   };
@@ -384,6 +395,12 @@ export function GridCanvas() {
         {activeGame.name}
         {cellW > 0 ? ` · ${cellW}×${cellH}` : " · empty"} · {Math.round(view.scale * 100)}%
       </div>
+
+      {error && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-background px-3 py-1.5 text-sm text-destructive shadow ring-1 ring-destructive/30">
+          {error}
+        </div>
+      )}
 
       {tiles.length > 0 && (
         <div

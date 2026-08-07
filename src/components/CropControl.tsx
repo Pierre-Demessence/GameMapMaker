@@ -43,7 +43,16 @@ export function CropControl() {
   };
 
   const update = (key: CropKey, axis: "w" | "h", raw: number) => {
-    const max = Math.max(0, (axis === "w" ? imgW : imgH) - 1);
+    const oppositeKey: CropKey =
+      key === "cropLeft"
+        ? "cropRight"
+        : key === "cropRight"
+          ? "cropLeft"
+          : key === "cropTop"
+            ? "cropBottom"
+            : "cropTop";
+    const dim = axis === "w" ? imgW : imgH;
+    const max = Math.max(0, dim - 1 - draft[oppositeKey]);
     const value = Math.min(max, Math.max(0, Math.floor(Number.isFinite(raw) ? raw : 0)));
     setDraft((d) => ({ ...d, [key]: value }));
     void setCrop(gameId, { [key]: value } as Partial<Record<CropKey, number>>);

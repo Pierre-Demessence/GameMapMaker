@@ -108,7 +108,14 @@ export async function importGameZip(file: File): Promise<string> {
   if (!manifestBytes) throw new Error("Not a valid backup: manifest.json is missing.");
 
   const manifest = JSON.parse(strFromU8(manifestBytes)) as Manifest;
-  if (manifest.version !== 1 || !manifest.game) {
+  if (
+    manifest.version !== 1 ||
+    !manifest.game ||
+    typeof manifest.game.cellWidth !== "number" ||
+    typeof manifest.game.cellHeight !== "number" ||
+    !Array.isArray(manifest.images) ||
+    !Array.isArray(manifest.tiles)
+  ) {
     throw new Error("Unsupported or corrupted backup file.");
   }
 
@@ -143,6 +150,11 @@ export async function importGameZip(file: File): Promise<string> {
       name: image.name,
       createdAt: now,
     });
+  }
+
+  if (manifest.images.length > 0 && idMap.size === 0) {
+    await db.deleteGameCascade(gameId);
+    throw new Error("Backup is missing its image data.");
   }
 
   for (const tile of manifest.tiles) {

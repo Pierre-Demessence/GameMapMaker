@@ -31,10 +31,16 @@ export async function exportGameImage(
   }
   const cols = maxGx - minGx + 1;
   const rows = maxGy - minGy + 1;
+  const width = cols * effW;
+  const height = rows * effH;
+  const MAX_DIM = 16384;
+  if (width > MAX_DIM || height > MAX_DIM || width * height > 268_000_000) {
+    throw new Error(`Map is too large to export as one image (${width}×${height}px).`);
+  }
 
   const canvas = document.createElement("canvas");
-  canvas.width = cols * effW;
-  canvas.height = rows * effH;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
