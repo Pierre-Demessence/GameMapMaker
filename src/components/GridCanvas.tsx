@@ -86,6 +86,7 @@ export function GridCanvas() {
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [hadTilesOnLoad] = useState(() => tiles.length > 0);
   const [showGrid, setShowGrid] = useState(() => localStorage.getItem("gmm.showGrid") === "1");
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
@@ -105,6 +106,34 @@ export function GridCanvas() {
     });
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      const node = t as HTMLElement | null;
+      return (
+        !!node &&
+        (node.tagName === "INPUT" || node.tagName === "TEXTAREA" || node.isContentEditable)
+      );
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isTyping(e.target)) {
+        e.preventDefault();
+        setIsSpaceHeld(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") setIsSpaceHeld(false);
+    };
+    const onBlur = () => setIsSpaceHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
   }, []);
 
   useEffect(() => {
@@ -217,18 +246,28 @@ export function GridCanvas() {
     if (next) setView(next);
   };
 
-  const onBackgroundPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+  const startPan = (e: ReactPointerEvent<HTMLDivElement>) => {
     const el = containerRef.current;
     if (!el) return;
-    setSelectedId(null);
+    e.preventDefault();
     setIsPanning(true);
     el.setPointerCapture(e.pointerId);
     interaction.current = { mode: "pan", pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
   };
 
+  const onBackgroundPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 && e.button !== 1) return;
+    if (e.button === 0 && !isSpaceHeld) setSelectedId(null);
+    startPan(e);
+  };
+
   const onTilePointerDown = (e: ReactPointerEvent<HTMLDivElement>, tile: Tile) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 1) return;
+    if (isSpaceHeld || e.button === 1) {
+      e.stopPropagation();
+      startPan(e);
+      return;
+    }
     e.stopPropagation();
     const el = containerRef.current;
     if (!el) return;
@@ -362,7 +401,7 @@ export function GridCanvas() {
                 selectedId === t.id ? "z-10 outline-2 outline-primary" : "",
                 dragging ? "z-20 opacity-90" : "",
               )}
-              style={{ left: x, top: y, width: cellW + bleed, height: cellH + bleed, cursor: "move" }}
+              style={{ left: x, top: y, width: cellW + bleed, height: cellH + bleed, cursor: isSpaceHeld ? "grab" : "move" }}
             >
               {url && (
                 <img
