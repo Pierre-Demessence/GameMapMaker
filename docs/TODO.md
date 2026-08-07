@@ -9,7 +9,7 @@ Future improvements, not yet scheduled.
   **middle-mouse drag** to pan anywhere (even over a screenshot). A Pan/Move toolbar toggle
   remains an optional future addition.
 
-- [ ] **Annotate screenshots** — let the user add annotations on top of rooms (text labels,
-  arrows, or markers for items / exits / notes). Decisions to make: annotations per-tile vs.
-  free-floating on the map, and whether they are included in the PNG export and the zip
-  backup.
+- [x] **Annotate screenshots** — v1 done: per-room **text notes** via right-click (with a
+  hover tooltip and a corner dot), plus **empty placeholder rooms** for rooms you don't have
+  a screenshot for. Saved in the zip backup, not in the PNG. Later ideas: free-floating
+  notes, markers, arrows, and showing notes in the PNG export.

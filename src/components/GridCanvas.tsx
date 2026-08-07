@@ -6,9 +6,16 @@ import {
   useRef,
   useState,
 } from "react";
-import { Grid3x3, Maximize2 } from "lucide-react";
+import { Grid3x3, Maximize2, StickyNote, Trash2 } from "lucide-react";
 import { useMapStore } from "@/store/mapStore";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CropControl } from "@/components/CropControl";
 import { cn } from "@/lib/utils";
 import type { Tile } from "@/lib/types";
@@ -64,6 +71,8 @@ export function GridCanvas() {
   const addImageAt = useMapStore((s) => s.addImageAt);
   const moveTile = useMapStore((s) => s.moveTile);
   const deleteTile = useMapStore((s) => s.deleteTile);
+  const setTileNote = useMapStore((s) => s.setTileNote);
+  const addEmptyTile = useMapStore((s) => s.addEmptyTile);
 
   const activeGame = games.find((g) => g.id === activeGameId) ?? null;
   const imgW = activeGame?.cellWidth ?? 0;
@@ -91,6 +100,13 @@ export function GridCanvas() {
   const [showGrid, setShowGrid] = useState(() => localStorage.getItem("gmm.showGrid") === "1");
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [menu, setMenu] = useState<
+    | { kind: "tile"; tileId: string; x: number; y: number }
+    | { kind: "empty"; gx: number; gy: number; x: number; y: number }
+    | null
+  >(null);
+  const [noteEditor, setNoteEditor] = useState<{ tileId: string; text: string } | null>(null);
+  const [hoverNote, setHoverNote] = useState<{ text: string; x: number; y: number } | null>(null);
   const interaction = useRef<Interaction>({ mode: "none" });
   const didFitRef = useRef(false);
 
@@ -373,6 +389,7 @@ export function GridCanvas() {
   const fy = cellH > 0 ? (cellH + bleed) / cellH : 1;
 
   return (
+    <>
     <div
       ref={containerRef}
       className="relative h-full w-full touch-none overflow-hidden bg-muted/30 select-none"
@@ -382,6 +399,12 @@ export function GridCanvas() {
       onPointerUp={onPointerUp}
       onDragOver={onDragOver}
       onDrop={(e) => void onDrop(e)}
+      onContextMenu={(e) => {
+        if (cellW <= 0 || cellH <= 0) return;
+        e.preventDefault();
+        const cell = cellAt(e.clientX, e.clientY);
+        setMenu({ kind: "empty", gx: cell.gx, gy: cell.gy, x: e.clientX, y: e.clientY });
+      }}
     >
       <div
         className="absolute top-0 left-0 origin-top-left"
@@ -391,11 +414,22 @@ export function GridCanvas() {
           const dragging = dragTileId === t.id && dragPos !== null ? dragPos : null;
           const x = dragging ? dragging.x : t.gx * cellW;
           const y = dragging ? dragging.y : t.gy * cellH;
-          const url = urls[t.imageId];
+          const url = t.imageId ? urls[t.imageId] : undefined;
           return (
             <div
               key={t.id}
               onPointerDown={(e) => onTilePointerDown(e, t)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenu({ kind: "tile", tileId: t.id, x: e.clientX, y: e.clientY });
+              }}
+              onMouseMove={(e) => {
+                if (t.note && interaction.current.mode === "none") {
+                  setHoverNote({ text: t.note, x: e.clientX, y: e.clientY });
+                }
+              }}
+              onMouseLeave={() => setHoverNote(null)}
               className={cn(
                 "absolute overflow-hidden",
                 selectedId === t.id ? "z-10 outline-2 outline-primary" : "",
@@ -403,13 +437,26 @@ export function GridCanvas() {
               )}
               style={{ left: x, top: y, width: cellW + bleed, height: cellH + bleed, cursor: isSpaceHeld ? "grab" : "move" }}
             >
-              {url && (
+              {url ? (
                 <img
                   src={url}
                   alt=""
                   draggable={false}
                   className="pointer-events-none absolute max-w-none"
                   style={{ left: -cropL * fx, top: -cropT * fy, width: imgW * fx, height: imgH * fy }}
+                />
+              ) : (
+                <div className="pointer-events-none absolute inset-0 border-2 border-dashed border-muted-foreground/40 bg-muted/50" />
+              )}
+              {t.note && (
+                <div
+                  className="pointer-events-none absolute rounded-full bg-primary ring-2 ring-background"
+                  style={{
+                    width: 14 / view.scale,
+                    height: 14 / view.scale,
+                    top: 5 / view.scale,
+                    right: 5 / view.scale,
+                  }}
                 />
               )}
             </div>
@@ -441,6 +488,15 @@ export function GridCanvas() {
         </div>
       )}
 
+      {hoverNote && (
+        <div
+          className="pointer-events-none fixed z-50 max-w-xs rounded-md bg-popover px-2.5 py-1.5 text-xs whitespace-pre-wrap text-popover-foreground shadow-md ring-1 ring-foreground/10"
+          style={{ left: hoverNote.x + 12, top: hoverNote.y + 12 }}
+        >
+          {hoverNote.text}
+        </div>
+      )}
+
       {tiles.length > 0 && (
         <div
           className="absolute top-3 right-3 flex gap-1"
@@ -460,6 +516,96 @@ export function GridCanvas() {
           <CropControl />
         </div>
       )}
+
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              setMenu(null);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div
+            className="fixed z-50 min-w-44 rounded-md bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
+            style={{ left: menu.x, top: menu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {menu.kind === "tile" ? (
+              <>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const target = tiles.find((t) => t.id === menu.tileId);
+                    setNoteEditor({ tileId: menu.tileId, text: target?.note ?? "" });
+                    setMenu(null);
+                  }}
+                >
+                  <StickyNote className="size-4" />
+                  {tiles.find((t) => t.id === menu.tileId)?.note ? "Edit note…" : "Add note…"}
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-destructive/10"
+                  onClick={() => {
+                    void deleteTile(menu.tileId);
+                    setMenu(null);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  Delete room
+                </button>
+              </>
+            ) : (
+              <button
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                onClick={() => {
+                  const target = menu;
+                  setMenu(null);
+                  void addEmptyTile(target.gx, target.gy).then((id) => {
+                    if (id) setNoteEditor({ tileId: id, text: "" });
+                  });
+                }}
+              >
+                <StickyNote className="size-4" />
+                Add room here…
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
     </div>
+      <Dialog open={noteEditor !== null} onOpenChange={(open) => { if (!open) setNoteEditor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Room note</DialogTitle>
+          </DialogHeader>
+          <textarea
+            autoFocus
+            className="min-h-32 w-full resize-none rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            placeholder="Notes about this room…"
+            value={noteEditor?.text ?? ""}
+            onChange={(e) => setNoteEditor((s) => (s ? { ...s, text: e.target.value } : s))}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteEditor(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (noteEditor) void setTileNote(noteEditor.tileId, noteEditor.text);
+                setNoteEditor(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

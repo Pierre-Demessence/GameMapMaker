@@ -48,6 +48,8 @@ interface MapState {
   addImageAt: (blob: Blob, targetGx: number, targetGy: number, name?: string) => Promise<void>;
   moveTile: (tileId: string, gx: number, gy: number) => Promise<void>;
   deleteTile: (tileId: string) => Promise<void>;
+  setTileNote: (tileId: string, note: string) => Promise<void>;
+  addEmptyTile: (gx: number, gy: number) => Promise<string | null>;
   importBackup: (file: File) => Promise<void>;
 }
 
@@ -189,16 +191,41 @@ export const useMapStore = create<MapState>((set, get) => ({
     const tile = get().tiles.find((t) => t.id === tileId);
     if (!tile) return;
     await db.deleteTile(tileId);
-    await db.deleteImage(tile.imageId);
-    const url = get().urls[tile.imageId];
-    if (url) URL.revokeObjectURL(url);
+    if (tile.imageId) {
+      await db.deleteImage(tile.imageId);
+      const url = get().urls[tile.imageId];
+      if (url) URL.revokeObjectURL(url);
+    }
     set((s) => {
       const urls = { ...s.urls };
-      delete urls[tile.imageId];
       const images = { ...s.images };
-      delete images[tile.imageId];
+      if (tile.imageId) {
+        delete urls[tile.imageId];
+        delete images[tile.imageId];
+      }
       return { tiles: s.tiles.filter((t) => t.id !== tileId), images, urls };
     });
+  },
+
+  setTileNote: async (tileId, note) => {
+    const tile = get().tiles.find((t) => t.id === tileId);
+    if (!tile) return;
+    const trimmed = note.trim();
+    const updated: Tile = { ...tile, note: trimmed || undefined };
+    await db.putTile(updated);
+    set((s) => ({ tiles: s.tiles.map((t) => (t.id === tileId ? updated : t)) }));
+  },
+
+  addEmptyTile: async (gx, gy) => {
+    const gameId = get().activeGameId;
+    if (!gameId) return null;
+    const game = get().games.find((g) => g.id === gameId);
+    if (!game || game.cellWidth === 0) return null;
+    if (get().tiles.some((t) => t.gx === gx && t.gy === gy)) return null;
+    const tile: Tile = { id: crypto.randomUUID(), gameId, gx, gy };
+    await db.putTile(tile);
+    set((s) => ({ tiles: [...s.tiles, tile] }));
+    return tile.id;
   },
 
   importBackup: async (file) => {

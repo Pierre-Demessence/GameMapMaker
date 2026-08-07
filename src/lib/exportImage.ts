@@ -9,7 +9,8 @@ export async function exportGameImage(
 ): Promise<{ blob: Blob; filename: string } | null> {
   const game = await db.getGame(gameId);
   if (!game || game.cellWidth === 0) return null;
-  const [tiles, images] = await Promise.all([db.getTiles(gameId), db.getImages(gameId)]);
+  const [allTiles, images] = await Promise.all([db.getTiles(gameId), db.getImages(gameId)]);
+  const tiles = allTiles.filter((t) => t.imageId);
   if (tiles.length === 0) return null;
 
   const cropL = game.cropLeft ?? 0;
@@ -46,6 +47,7 @@ export async function exportGameImage(
 
   const imageById = new Map(images.map((im) => [im.id, im]));
   for (const tile of tiles) {
+    if (!tile.imageId) continue;
     const image = imageById.get(tile.imageId);
     if (!image) continue;
     const bitmap = await createImageBitmap(image.blob);

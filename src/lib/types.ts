@@ -26,7 +26,8 @@ export interface ImageRec {
 export interface Tile {
   id: string;
   gameId: string;
-  imageId: string;
+  imageId?: string;
   gx: number;
   gy: number;
+  note?: string;
 }

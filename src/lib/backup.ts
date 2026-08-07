@@ -24,7 +24,7 @@ interface Manifest {
     cropLeft?: number;
   };
   images: ManifestImage[];
-  tiles: { imageId: string; gx: number; gy: number }[];
+  tiles: { imageId?: string; gx: number; gy: number; note?: string }[];
 }
 
 function extForType(type: string): string {
@@ -93,7 +93,7 @@ export async function exportGameZip(
       cropLeft: game.cropLeft,
     },
     images: manifestImages,
-    tiles: tiles.map((t) => ({ imageId: t.imageId, gx: t.gx, gy: t.gy })),
+    tiles: tiles.map((t) => ({ imageId: t.imageId, gx: t.gx, gy: t.gy, note: t.note })),
   };
   files["manifest.json"] = [strToU8(JSON.stringify(manifest, null, 2)), { level: 6 }];
 
@@ -158,9 +158,12 @@ export async function importGameZip(file: File): Promise<string> {
   }
 
   for (const tile of manifest.tiles) {
-    const imageId = idMap.get(tile.imageId);
-    if (!imageId) continue;
-    await db.putTile({ id: crypto.randomUUID(), gameId, imageId, gx: tile.gx, gy: tile.gy });
+    let imageId: string | undefined;
+    if (tile.imageId) {
+      imageId = idMap.get(tile.imageId);
+      if (!imageId) continue;
+    }
+    await db.putTile({ id: crypto.randomUUID(), gameId, imageId, gx: tile.gx, gy: tile.gy, note: tile.note });
   }
 
   return gameId;
