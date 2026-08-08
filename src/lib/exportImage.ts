@@ -32,12 +32,20 @@ export async function exportGameImage(
   }
   const cols = maxGx - minGx + 1;
   const rows = maxGy - minGy + 1;
-  const width = cols * effW;
-  const height = rows * effH;
-  const MAX_DIM = 16384;
-  if (width > MAX_DIM || height > MAX_DIM || width * height > 268_000_000) {
-    throw new Error(`Map is too large to export as one image (${width}×${height}px).`);
-  }
+  const fullW = cols * effW;
+  const fullH = rows * effH;
+
+  // Fit within browser canvas limits, downscaling only very large maps.
+  const MAX_DIM = 32767;
+  const MAX_AREA = 300_000_000;
+  const scale = Math.min(
+    1,
+    MAX_DIM / fullW,
+    MAX_DIM / fullH,
+    Math.sqrt(MAX_AREA / (fullW * fullH)),
+  );
+  const width = Math.max(1, Math.round(fullW * scale));
+  const height = Math.max(1, Math.round(fullH * scale));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -53,9 +61,9 @@ export async function exportGameImage(
     const bitmap = await createImageBitmap(image.blob);
     const sW = Math.max(1, bitmap.width - cropL - cropR);
     const sH = Math.max(1, bitmap.height - cropT - cropB);
-    const dx = (tile.gx - minGx) * effW;
-    const dy = (tile.gy - minGy) * effH;
-    ctx.drawImage(bitmap, cropL, cropT, sW, sH, dx, dy, effW, effH);
+    const dx = (tile.gx - minGx) * effW * scale;
+    const dy = (tile.gy - minGy) * effH * scale;
+    ctx.drawImage(bitmap, cropL, cropT, sW, sH, dx, dy, effW * scale, effH * scale);
     bitmap.close();
   }
 
