@@ -12,4 +12,9 @@ Future improvements, not yet scheduled.
 - [x] **Annotate screenshots** — v1 done: per-room **text notes** via right-click (with a
   hover tooltip and a corner dot), plus **empty placeholder rooms** for rooms you don't have
   a screenshot for. Saved in the zip backup, not in the PNG. Later ideas: free-floating
-  notes, markers, arrows, and showing notes in the PNG export.
+  notes, arrows, and showing notes in the PNG export.
+
+- [ ] **Markers** — in progress: Phase 1 (room markers) done — pins anchored to a room,
+  right-click to add, editor with icon/color/note, zip backup. Phase 2: zone links
+  (connections between rooms in separate zones, with a requirement note). See
+  `docs/plans/markers.md`.

@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzip, zip } from "fflate";
 import type { Zippable } from "fflate";
 import * as db from "@/lib/db";
-import type { Game } from "@/lib/types";
+import type { Game, MarkerIcon, RoomMarker } from "@/lib/types";
 
 interface ManifestImage {
   id: string;
@@ -10,6 +10,24 @@ interface ManifestImage {
   height: number;
   type: string;
   file: string;
+}
+
+interface ManifestTile {
+  id?: string;
+  imageId?: string;
+  gx: number;
+  gy: number;
+  note?: string;
+}
+
+interface ManifestMarker {
+  tileId: string;
+  u: number;
+  v: number;
+  label: string;
+  icon: string;
+  color: string;
+  note?: string;
 }
 
 interface Manifest {
@@ -24,7 +42,8 @@ interface Manifest {
     cropLeft?: number;
   };
   images: ManifestImage[];
-  tiles: { imageId?: string; gx: number; gy: number; note?: string }[];
+  tiles: ManifestTile[];
+  markers?: ManifestMarker[];
 }
 
 function extForType(type: string): string {
@@ -63,7 +82,11 @@ export async function exportGameZip(
 ): Promise<{ blob: Blob; filename: string } | null> {
   const game = await db.getGame(gameId);
   if (!game) return null;
-  const [tiles, images] = await Promise.all([db.getTiles(gameId), db.getImages(gameId)]);
+  const [tiles, images, markers] = await Promise.all([
+    db.getTiles(gameId),
+    db.getImages(gameId),
+    db.getMarkers(gameId),
+  ]);
 
   const files: Zippable = {};
   const manifestImages: ManifestImage[] = [];
@@ -93,7 +116,16 @@ export async function exportGameZip(
       cropLeft: game.cropLeft,
     },
     images: manifestImages,
-    tiles: tiles.map((t) => ({ imageId: t.imageId, gx: t.gx, gy: t.gy, note: t.note })),
+    tiles: tiles.map((t) => ({ id: t.id, imageId: t.imageId, gx: t.gx, gy: t.gy, note: t.note })),
+    markers: markers.map((m) => ({
+      tileId: m.tileId,
+      u: m.u,
+      v: m.v,
+      label: m.label,
+      icon: m.icon,
+      color: m.color,
+      note: m.note,
+    })),
   };
   files["manifest.json"] = [strToU8(JSON.stringify(manifest, null, 2)), { level: 6 }];
 
@@ -114,7 +146,8 @@ export async function importGameZip(file: File): Promise<string> {
     typeof manifest.game.cellWidth !== "number" ||
     typeof manifest.game.cellHeight !== "number" ||
     !Array.isArray(manifest.images) ||
-    !Array.isArray(manifest.tiles)
+    !Array.isArray(manifest.tiles) ||
+    (manifest.markers !== undefined && !Array.isArray(manifest.markers))
   ) {
     throw new Error("Unsupported or corrupted backup file.");
   }
@@ -157,13 +190,42 @@ export async function importGameZip(file: File): Promise<string> {
     throw new Error("Backup is missing its image data.");
   }
 
+  const tileIdMap = new Map<string, string>();
   for (const tile of manifest.tiles) {
     let imageId: string | undefined;
     if (tile.imageId) {
       imageId = idMap.get(tile.imageId);
       if (!imageId) continue;
     }
-    await db.putTile({ id: crypto.randomUUID(), gameId, imageId, gx: tile.gx, gy: tile.gy, note: tile.note });
+    const newTileId = crypto.randomUUID();
+    if (tile.id) tileIdMap.set(tile.id, newTileId);
+    await db.putTile({
+      id: newTileId,
+      gameId,
+      imageId,
+      gx: tile.gx,
+      gy: tile.gy,
+      note: tile.note,
+    });
+  }
+
+  const MARKER_ICONS: MarkerIcon[] = ["pin", "star", "flag", "gem", "skull"];
+  for (const marker of manifest.markers ?? []) {
+    const tileId = tileIdMap.get(marker.tileId);
+    if (!tileId) continue;
+    const roomMarker: RoomMarker = {
+      id: crypto.randomUUID(),
+      gameId,
+      tileId,
+      u: Math.min(1, Math.max(0, typeof marker.u === "number" ? marker.u : 0.5)),
+      v: Math.min(1, Math.max(0, typeof marker.v === "number" ? marker.v : 0.5)),
+      label: typeof marker.label === "string" ? marker.label : "Marker",
+      icon: MARKER_ICONS.includes(marker.icon as MarkerIcon) ? (marker.icon as MarkerIcon) : "pin",
+      color: typeof marker.color === "string" ? marker.color : "#f59e0b",
+      note: marker.note,
+      createdAt: now,
+    };
+    await db.putMarker(roomMarker);
   }
 
   return gameId;

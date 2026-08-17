@@ -6,7 +6,19 @@ import {
   useRef,
   useState,
 } from "react";
-import { Grid3x3, Maximize2, StickyNote, Trash2 } from "lucide-react";
+import {
+  Flag,
+  Gem,
+  Grid3x3,
+  MapPin,
+  Maximize2,
+  Pencil,
+  Skull,
+  Star,
+  StickyNote,
+  Trash2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useMapStore } from "@/store/mapStore";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,10 +30,19 @@ import {
 } from "@/components/ui/dialog";
 import { CropControl } from "@/components/CropControl";
 import { cn } from "@/lib/utils";
-import type { Tile } from "@/lib/types";
+import type { MarkerIcon, Tile } from "@/lib/types";
 
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 4;
+const DEFAULT_MARKER_COLOR = "#f59e0b";
+
+const MARKER_ICONS: Record<MarkerIcon, LucideIcon> = {
+  pin: MapPin,
+  star: Star,
+  flag: Flag,
+  gem: Gem,
+  skull: Skull,
+};
 
 interface View {
   x: number;
@@ -32,7 +53,8 @@ interface View {
 type Interaction =
   | { mode: "none" }
   | { mode: "pan"; pointerId: number; lastX: number; lastY: number }
-  | { mode: "drag"; pointerId: number; tileId: string; grabX: number; grabY: number };
+  | { mode: "drag"; pointerId: number; tileId: string; grabX: number; grabY: number }
+  | { mode: "marker-drag"; pointerId: number; markerId: string };
 
 function computeFitView(
   rect: { width: number; height: number },
@@ -73,6 +95,11 @@ export function GridCanvas() {
   const deleteTile = useMapStore((s) => s.deleteTile);
   const setTileNote = useMapStore((s) => s.setTileNote);
   const addEmptyTile = useMapStore((s) => s.addEmptyTile);
+  const markers = useMapStore((s) => s.markers);
+  const addMarker = useMapStore((s) => s.addMarker);
+  const updateMarker = useMapStore((s) => s.updateMarker);
+  const deleteMarker = useMapStore((s) => s.deleteMarker);
+  const moveMarker = useMapStore((s) => s.moveMarker);
 
   const activeGame = games.find((g) => g.id === activeGameId) ?? null;
   const imgW = activeGame?.cellWidth ?? 0;
@@ -92,6 +119,8 @@ export function GridCanvas() {
   }, [view]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [dragMarker, setDragMarker] = useState<{ markerId: string; x: number; y: number } | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -102,10 +131,18 @@ export function GridCanvas() {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<
     | { kind: "tile"; tileId: string; x: number; y: number }
+    | { kind: "marker"; markerId: string; x: number; y: number }
     | { kind: "empty"; gx: number; gy: number; x: number; y: number }
     | null
   >(null);
   const [noteEditor, setNoteEditor] = useState<{ tileId: string; text: string } | null>(null);
+  const [markerEditor, setMarkerEditor] = useState<{
+    markerId: string;
+    label: string;
+    icon: MarkerIcon;
+    color: string;
+    note: string;
+  } | null>(null);
   const [hoverNote, setHoverNote] = useState<{ text: string; x: number; y: number } | null>(null);
   const interaction = useRef<Interaction>({ mode: "none" });
   const didFitRef = useRef(false);
@@ -219,11 +256,15 @@ export function GridCanvas() {
         e.preventDefault();
         void deleteTile(selectedId);
         setSelectedId(null);
+      } else if (selectedMarkerId) {
+        e.preventDefault();
+        void deleteMarker(selectedMarkerId);
+        setSelectedMarkerId(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, deleteTile]);
+  }, [selectedId, selectedMarkerId, deleteTile, deleteMarker]);
 
   // Fit the whole map into view once, when a game that already has rooms is loaded.
   useEffect(() => {
@@ -255,11 +296,32 @@ export function GridCanvas() {
     return { gx: Math.floor(w.x / cellW), gy: Math.floor(w.y / cellH) };
   };
 
+  const tileAtPoint = (wx: number, wy: number) =>
+    tiles.find(
+      (t) =>
+        wx >= t.gx * cellW &&
+        wx < (t.gx + 1) * cellW &&
+        wy >= t.gy * cellH &&
+        wy < (t.gy + 1) * cellH,
+    );
+
   const fitToView = () => {
     const el = containerRef.current;
     if (!el) return;
     const next = computeFitView(el.getBoundingClientRect(), tiles, cellW, cellH);
     if (next) setView(next);
+  };
+
+  const openMarkerEditor = (markerId: string) => {
+    const marker = markers.find((m) => m.id === markerId);
+    if (!marker) return;
+    setMarkerEditor({
+      markerId: marker.id,
+      label: marker.label,
+      icon: marker.icon,
+      color: marker.color,
+      note: marker.note ?? "",
+    });
   };
 
   const startPan = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -273,7 +335,10 @@ export function GridCanvas() {
 
   const onBackgroundPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.button !== 1) return;
-    if (e.button === 0 && !isSpaceHeld) setSelectedId(null);
+    if (e.button === 0 && !isSpaceHeld) {
+      setSelectedId(null);
+      setSelectedMarkerId(null);
+    }
     startPan(e);
   };
 
@@ -288,6 +353,7 @@ export function GridCanvas() {
     const el = containerRef.current;
     if (!el) return;
     setSelectedId(tile.id);
+    setSelectedMarkerId(null);
     setDragTileId(tile.id);
     el.setPointerCapture(e.pointerId);
     const w = screenToWorld(e.clientX, e.clientY);
@@ -314,7 +380,18 @@ export function GridCanvas() {
     } else if (it.mode === "drag") {
       const w = screenToWorld(e.clientX, e.clientY);
       setDragPos({ x: w.x - it.grabX, y: w.y - it.grabY });
+    } else if (it.mode === "marker-drag") {
+      const w = screenToWorld(e.clientX, e.clientY);
+      setDragMarker({ markerId: it.markerId, x: w.x, y: w.y });
     }
+  };
+
+  const resetInteraction = () => {
+    interaction.current = { mode: "none" };
+    setDragPos(null);
+    setDragTileId(null);
+    setDragMarker(null);
+    setIsPanning(false);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -324,12 +401,25 @@ export function GridCanvas() {
       const gx = Math.round((w.x - it.grabX) / cellW);
       const gy = Math.round((w.y - it.grabY) / cellH);
       void moveTile(it.tileId, gx, gy);
+    } else if (it.mode === "marker-drag" && cellW > 0 && cellH > 0) {
+      const w = screenToWorld(e.clientX, e.clientY);
+      const marker = markers.find((m) => m.id === it.markerId);
+      const tile = tileAtPoint(w.x, w.y);
+      if (marker && tile) {
+        const ownTile = tiles.find((t) => t.id === marker.tileId);
+        const ox = ownTile ? ownTile.gx * cellW + marker.u * cellW : w.x;
+        const oy = ownTile ? ownTile.gy * cellH + marker.v * cellH : w.y;
+        if (Math.hypot(w.x - ox, w.y - oy) * viewRef.current.scale >= 4) {
+          const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
+          const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
+          void moveMarker(it.markerId, tile.id, u, v);
+        }
+      }
     }
-    interaction.current = { mode: "none" };
-    setDragPos(null);
-    setDragTileId(null);
-    setIsPanning(false);
+    resetInteraction();
   };
+
+  const onPointerCancel = () => resetInteraction();
 
   const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -393,10 +483,12 @@ export function GridCanvas() {
     <div
       ref={containerRef}
       className="relative h-full w-full touch-none overflow-hidden bg-muted/30 select-none"
-      style={{ cursor: isPanning ? "grabbing" : "grab" }}
+      style={{ cursor: isPanning ? "grabbing" : dragMarker ? "grabbing" : "grab" }}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={resetInteraction}
       onDragOver={onDragOver}
       onDrop={(e) => void onDrop(e)}
       onContextMenu={(e) => {
@@ -459,6 +551,75 @@ export function GridCanvas() {
                   }}
                 />
               )}
+            </div>
+          );
+        })}
+        {markers.map((m) => {
+          const tile = tiles.find((t) => t.id === m.tileId);
+          if (!tile) return null;
+          const dragging = dragMarker?.markerId === m.id ? dragMarker : null;
+          const x = dragging ? dragging.x : tile.gx * cellW + m.u * cellW;
+          const y = dragging ? dragging.y : tile.gy * cellH + m.v * cellH;
+          const size = 18 / view.scale;
+          const Icon = MARKER_ICONS[m.icon] ?? MapPin;
+          return (
+            <div
+              key={m.id}
+              className={cn(
+                "absolute z-30 flex cursor-pointer items-center gap-1.5",
+                selectedMarkerId === m.id ? "outline-2 outline-primary" : "opacity-90 hover:opacity-100",
+              )}
+              style={{ left: x - size / 2, top: y - size / 2 }}
+              onPointerDown={(e) => {
+                if (e.button !== 0 && e.button !== 1) return;
+                if (isSpaceHeld || e.button === 1) {
+                  e.stopPropagation();
+                  startPan(e);
+                  return;
+                }
+                e.stopPropagation();
+                setSelectedMarkerId(m.id);
+                setSelectedId(null);
+                const el = containerRef.current;
+                if (!el) return;
+                el.setPointerCapture(e.pointerId);
+                const w = screenToWorld(e.clientX, e.clientY);
+                setDragMarker({ markerId: m.id, x: w.x, y: w.y });
+                interaction.current = { mode: "marker-drag", pointerId: e.pointerId, markerId: m.id };
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                openMarkerEditor(m.id);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSelectedMarkerId(m.id);
+                setMenu({ kind: "marker", markerId: m.id, x: e.clientX, y: e.clientY });
+              }}
+              onMouseEnter={(e) => {
+                if (interaction.current.mode === "none") {
+                  setHoverNote({
+                    text: m.note ? `${m.label} — ${m.note}` : m.label,
+                    x: e.clientX,
+                    y: e.clientY,
+                  });
+                }
+              }}
+              onMouseLeave={() => setHoverNote(null)}
+            >
+              <div
+                className="pointer-events-none flex items-center justify-center rounded-full shadow-md ring-2 ring-background"
+                style={{ width: size, height: size, backgroundColor: m.color }}
+              >
+                <Icon className="size-3/5 text-background" />
+              </div>
+              <span
+                className="pointer-events-none rounded bg-background/80 px-1 py-0.5 font-medium text-foreground"
+                style={{ fontSize: 11 / view.scale }}
+              >
+                {m.label}
+              </span>
             </div>
           );
         })}
@@ -535,7 +696,7 @@ export function GridCanvas() {
             style={{ left: menu.x, top: menu.y }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {menu.kind === "tile" ? (
+            {menu.kind === "tile" && (
               <>
                 <button
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
@@ -549,6 +710,39 @@ export function GridCanvas() {
                   {tiles.find((t) => t.id === menu.tileId)?.note ? "Edit note…" : "Add note…"}
                 </button>
                 <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const target = menu;
+                    const tile = tiles.find((t) => t.id === target.tileId);
+                    setMenu(null);
+                    if (!tile || cellW <= 0 || cellH <= 0) return;
+                    const w = screenToWorld(target.x, target.y);
+                    const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
+                    const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
+                    void addMarker({
+                      tileId: tile.id,
+                      u,
+                      v,
+                      label: "Marker",
+                      icon: "pin",
+                      color: DEFAULT_MARKER_COLOR,
+                    }).then((id) => {
+                      if (id) {
+                        setMarkerEditor({
+                          markerId: id,
+                          label: "Marker",
+                          icon: "pin",
+                          color: DEFAULT_MARKER_COLOR,
+                          note: "",
+                        });
+                      }
+                    });
+                  }}
+                >
+                  <MapPin className="size-4" />
+                  Add marker here…
+                </button>
+                <button
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-destructive/10"
                   onClick={() => {
                     void deleteTile(menu.tileId);
@@ -559,7 +753,34 @@ export function GridCanvas() {
                   Delete room
                 </button>
               </>
-            ) : (
+            )}
+            {menu.kind === "marker" && (
+              <>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const markerId = menu.markerId;
+                    setMenu(null);
+                    openMarkerEditor(markerId);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                  Edit marker…
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-destructive/10"
+                  onClick={() => {
+                    void deleteMarker(menu.markerId);
+                    setSelectedMarkerId(null);
+                    setMenu(null);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  Delete marker
+                </button>
+              </>
+            )}
+            {menu.kind === "empty" && (
               <button
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
                 onClick={() => {
@@ -599,6 +820,77 @@ export function GridCanvas() {
               onClick={() => {
                 if (noteEditor) void setTileNote(noteEditor.tileId, noteEditor.text);
                 setNoteEditor(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={markerEditor !== null} onOpenChange={(open) => { if (!open) setMarkerEditor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marker</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <input
+              className="rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              placeholder="Label (e.g. chest, spawn…)"
+              value={markerEditor?.label ?? ""}
+              onChange={(e) => setMarkerEditor((s) => (s ? { ...s, label: e.target.value } : s))}
+            />
+            <div className="flex gap-1">
+              {(Object.keys(MARKER_ICONS) as MarkerIcon[]).map((key) => {
+                const Icon = MARKER_ICONS[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    title={key}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-md border",
+                      markerEditor?.icon === key
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border text-muted-foreground hover:bg-accent",
+                    )}
+                    onClick={() => setMarkerEditor((s) => (s ? { ...s, icon: key } : s))}
+                  >
+                    <Icon className="size-4" />
+                  </button>
+                );
+              })}
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Color
+              <input
+                type="color"
+                className="size-8 cursor-pointer rounded border border-input bg-transparent p-0.5"
+                value={markerEditor?.color ?? DEFAULT_MARKER_COLOR}
+                onChange={(e) => setMarkerEditor((s) => (s ? { ...s, color: e.target.value } : s))}
+              />
+            </label>
+            <textarea
+              className="min-h-20 w-full resize-none rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              placeholder="Optional note about this marker…"
+              value={markerEditor?.note ?? ""}
+              onChange={(e) => setMarkerEditor((s) => (s ? { ...s, note: e.target.value } : s))}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMarkerEditor(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (markerEditor) {
+                  void updateMarker(markerEditor.markerId, {
+                    label: markerEditor.label,
+                    icon: markerEditor.icon,
+                    color: markerEditor.color,
+                    note: markerEditor.note.trim() || undefined,
+                  });
+                }
+                setMarkerEditor(null);
               }}
             >
               Save

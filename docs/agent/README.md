@@ -15,9 +15,7 @@ interactive/browser testing.
 
 ## Gotchas (verified)
 
-- **TypeScript is pinned to `~5.9`** — do not upgrade to 7.x. TS 7 removed `baseUrl` (used
-  here) and is not supported by `typescript-eslint` yet. The tsconfigs keep `baseUrl` +
-  `paths`.
+- **TypeScript is pinned to `~5.9`** — do not upgrade to 7.x. TS 7 removed `baseUrl` and is not supported by `typescript-eslint` yet. The tsconfigs use `paths` with relative entries (no `baseUrl`), which also avoids the TS 6/7 deprecation diagnostic.
 - **shadcn/ui is the base-nova style (Base UI, not Radix).** Compose with
   `render={<Component />}` (not `asChild`); menu items use `onClick` (not `onSelect`);
   dialogs use `open` / `onOpenChange`. Button sizes include `icon-sm`.

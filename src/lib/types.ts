@@ -31,3 +31,34 @@ export interface Tile {
   gy: number;
   note?: string;
 }
+
+export type MarkerIcon = "pin" | "star" | "flag" | "gem" | "skull";
+
+export interface RoomMarker {
+  id: string;
+  gameId: string;
+  tileId: string;
+  u: number;
+  v: number;
+  label: string;
+  icon: MarkerIcon;
+  color: string;
+  note?: string;
+  createdAt: number;
+}
+
+export interface ZoneLink {
+  id: string;
+  gameId: string;
+  fromTileId: string;
+  fromU: number;
+  fromV: number;
+  toTileId: string;
+  toU: number;
+  toV: number;
+  label: string;
+  twoWay: boolean;
+  color: string;
+  note?: string;
+  createdAt: number;
+}

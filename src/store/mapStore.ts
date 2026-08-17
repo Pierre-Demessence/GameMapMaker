@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as db from "@/lib/db";
 import { importGameZip } from "@/lib/backup";
-import type { CropKey, Game, ImageRec, Tile } from "@/lib/types";
+import type { CropKey, Game, ImageRec, MarkerIcon, RoomMarker, Tile } from "@/lib/types";
 
 let initStarted = false;
 
@@ -35,6 +35,7 @@ interface MapState {
   games: Game[];
   activeGameId: string | null;
   tiles: Tile[];
+  markers: RoomMarker[];
   images: Record<string, ImageRec>;
   urls: Record<string, string>;
   ready: boolean;
@@ -50,6 +51,21 @@ interface MapState {
   deleteTile: (tileId: string) => Promise<void>;
   setTileNote: (tileId: string, note: string) => Promise<void>;
   addEmptyTile: (gx: number, gy: number) => Promise<string | null>;
+  addMarker: (data: {
+    tileId: string;
+    u: number;
+    v: number;
+    label: string;
+    icon: MarkerIcon;
+    color: string;
+    note?: string;
+  }) => Promise<string | null>;
+  updateMarker: (
+    id: string,
+    patch: Partial<Pick<RoomMarker, "label" | "icon" | "color" | "note">>,
+  ) => Promise<void>;
+  moveMarker: (id: string, tileId: string, u: number, v: number) => Promise<void>;
+  deleteMarker: (id: string) => Promise<void>;
   importBackup: (file: File) => Promise<void>;
 }
 
@@ -57,6 +73,7 @@ export const useMapStore = create<MapState>((set, get) => ({
   games: [],
   activeGameId: null,
   tiles: [],
+  markers: [],
   images: {},
   urls: {},
   ready: false,
@@ -109,7 +126,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     set((s) => ({ games: s.games.filter((g) => g.id !== id) }));
     if (wasActive) {
       for (const url of Object.values(get().urls)) URL.revokeObjectURL(url);
-      set({ activeGameId: null, tiles: [], images: {}, urls: {} });
+      set({ activeGameId: null, tiles: [], markers: [], images: {}, urls: {} });
       const next = get().games[0]?.id ?? null;
       if (next) await get().selectGame(next);
       else await db.setMeta("lastOpenedGameId", undefined);
@@ -118,14 +135,18 @@ export const useMapStore = create<MapState>((set, get) => ({
 
   selectGame: async (id) => {
     for (const url of Object.values(get().urls)) URL.revokeObjectURL(url);
-    const [tiles, imageList] = await Promise.all([db.getTiles(id), db.getImages(id)]);
+    const [tiles, imageList, markers] = await Promise.all([
+      db.getTiles(id),
+      db.getImages(id),
+      db.getMarkers(id),
+    ]);
     const images: Record<string, ImageRec> = {};
     const urls: Record<string, string> = {};
     for (const img of imageList) {
       images[img.id] = img;
       urls[img.id] = URL.createObjectURL(img.blob);
     }
-    set({ activeGameId: id, tiles, images, urls });
+    set({ activeGameId: id, tiles, markers, images, urls });
     await db.setMeta("lastOpenedGameId", id);
   },
 
@@ -191,6 +212,8 @@ export const useMapStore = create<MapState>((set, get) => ({
     const tile = get().tiles.find((t) => t.id === tileId);
     if (!tile) return;
     await db.deleteTile(tileId);
+    await db.deleteMarkersForTile(tileId);
+    await db.deleteZoneLinksForTile(tileId);
     if (tile.imageId) {
       await db.deleteImage(tile.imageId);
       const url = get().urls[tile.imageId];
@@ -203,7 +226,12 @@ export const useMapStore = create<MapState>((set, get) => ({
         delete urls[tile.imageId];
         delete images[tile.imageId];
       }
-      return { tiles: s.tiles.filter((t) => t.id !== tileId), images, urls };
+      return {
+        tiles: s.tiles.filter((t) => t.id !== tileId),
+        markers: s.markers.filter((m) => m.tileId !== tileId),
+        images,
+        urls,
+      };
     });
   },
 
@@ -226,6 +254,54 @@ export const useMapStore = create<MapState>((set, get) => ({
     await db.putTile(tile);
     set((s) => ({ tiles: [...s.tiles, tile] }));
     return tile.id;
+  },
+
+  addMarker: async (data) => {
+    const gameId = get().activeGameId;
+    if (!gameId) return null;
+    if (!get().tiles.some((t) => t.id === data.tileId)) return null;
+    const marker: RoomMarker = {
+      id: crypto.randomUUID(),
+      gameId,
+      tileId: data.tileId,
+      u: Math.min(1, Math.max(0, data.u)),
+      v: Math.min(1, Math.max(0, data.v)),
+      label: data.label,
+      icon: data.icon,
+      color: data.color,
+      note: data.note,
+      createdAt: Date.now(),
+    };
+    await db.putMarker(marker);
+    set((s) => ({ markers: [...s.markers, marker] }));
+    return marker.id;
+  },
+
+  updateMarker: async (id, patch) => {
+    const marker = get().markers.find((m) => m.id === id);
+    if (!marker) return;
+    const updated: RoomMarker = { ...marker, ...patch };
+    await db.putMarker(updated);
+    set((s) => ({ markers: s.markers.map((m) => (m.id === id ? updated : m)) }));
+  },
+
+  moveMarker: async (id, tileId, u, v) => {
+    const marker = get().markers.find((m) => m.id === id);
+    if (!marker) return;
+    if (!get().tiles.some((t) => t.id === tileId)) return;
+    const updated: RoomMarker = {
+      ...marker,
+      tileId,
+      u: Math.min(1, Math.max(0, u)),
+      v: Math.min(1, Math.max(0, v)),
+    };
+    await db.putMarker(updated);
+    set((s) => ({ markers: s.markers.map((m) => (m.id === id ? updated : m)) }));
+  },
+
+  deleteMarker: async (id) => {
+    await db.deleteMarker(id);
+    set((s) => ({ markers: s.markers.filter((m) => m.id !== id) }));
   },
 
   importBackup: async (file) => {

@@ -25,6 +25,18 @@ on startup. Each game has its own grid size and images.
   overwritten.
 - **Select / Delete**: click a tile to select, press `Delete` (or `Backspace`) to remove it.
 
+## Markers (room)
+
+- **Add**: right-click a room → *Add marker here…* — the marker lands where you clicked,
+  anchored to the room so it moves with it.
+- **Move**: drag a marker to reposition it inside its room, or drop it on another room to
+  re-anchor it there. Dropping outside any room cancels the move.
+- **Edit**: double-click a marker, or right-click → *Edit marker…*: label, icon
+  (pin / star / flag / gem / skull), color, and an optional note.
+- **Select / Delete**: click to select, press `Delete` (or `Backspace`). Hovering a marker
+  shows its label and note.
+- Markers are stored with the game and included in the zip backup.
+
 ## Crop
 
 The *Crop* panel trims the same top / right / bottom / left margin from every image — useful

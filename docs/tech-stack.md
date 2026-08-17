@@ -24,7 +24,7 @@
 
 TypeScript 7 (the native port) is available but is not yet supported by `typescript-eslint`
 (peer range `<6.1.0`) and removed the `baseUrl` option. The project pins TypeScript to
-`~5.9` and keeps `baseUrl` + `paths` in the tsconfigs.
+`~5.9` and keeps `paths` (relative entries, no `baseUrl`) in the tsconfigs.
 
 ### shadcn base-nova uses Base UI, not Radix
 
