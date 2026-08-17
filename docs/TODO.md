@@ -15,6 +15,7 @@ Future improvements, not yet scheduled.
   notes, arrows, and showing notes in the PNG export.
 
 - [ ] **Markers** — in progress: Phase 1 (room markers) done — pins anchored to a room,
-  right-click to add, editor with icon/color/note, zip backup. Phase 2: zone links
-  (connections between rooms in separate zones, with a requirement note). See
+  right-click to add, drag to reposition or onto another room, editor with icon/color/note,
+  zip backup. Phase 2 (zone links) implemented: Connect-to flow, arrows with direction
+  (both/one way) + requirement note, zip backup, drawn into PNG export. See
   `docs/plans/markers.md`.

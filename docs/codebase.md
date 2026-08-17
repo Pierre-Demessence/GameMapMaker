@@ -18,7 +18,7 @@ src/
     mapStore.ts       Zustand store + object-URL lifecycle
   components/
     Sidebar.tsx       Game list, CRUD, import/export
-    GridCanvas.tsx    Pan/zoom, paste/drop, tile drag, fit, grid, crop rendering, markers
+    GridCanvas.tsx    Pan/zoom, paste/drop, tile drag, fit, grid, crop rendering, markers, zone links
     CropControl.tsx   Crop panel
     ui/               Generated shadcn components
 ```
@@ -39,14 +39,17 @@ ZoneLink   { id, gameId, fromTileId, fromU, fromV, toTileId, toU, toV, label, tw
   export) uses the effective size.
 - One image maps to one tile (1:1). Deleting a tile deletes its image and its markers.
 - Markers are anchored to a room by `tileId` and a fractional offset `u`/`v` (0..1) inside
-  it, so they stay put when the tile moves. `ZoneLink` is defined but not yet used (Phase 2).
+  it, so they stay put when the tile moves. Zone links connect two such anchors
+  (`fromTileId`/`fromU`/`fromV` → `toTileId`/`toU`/`toV`) and carry `twoWay` and a
+  requirement `note`.
 
 ## Persistence
 
 IndexedDB object stores: `games`, `images` (index `by-game`), `tiles` (index `by-game`),
-`markers` (index `by-game`), `zoneLinks` (index `by-game`, reserved for Phase 2), and `meta`
+`markers` (index `by-game`), `zoneLinks` (index `by-game`), and `meta`
 (e.g. last-opened game id). Deleting a game cascades to its images, tiles, markers, and
-links. Object URLs for images are created on load and revoked on game switch / delete.
+links; deleting a tile cascades to its markers and links. Object URLs for images are
+created on load and revoked on game switch / delete.
 
 ## Rendering and interaction
 

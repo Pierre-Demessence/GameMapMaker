@@ -7,9 +7,12 @@ import {
   useState,
 } from "react";
 import {
+  ArrowLeftRight,
+  ArrowRight,
   Flag,
   Gem,
   Grid3x3,
+  Link2,
   MapPin,
   Maximize2,
   Pencil,
@@ -35,6 +38,7 @@ import type { MarkerIcon, Tile } from "@/lib/types";
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 4;
 const DEFAULT_MARKER_COLOR = "#f59e0b";
+const DEFAULT_LINK_COLOR = "#3b82f6";
 
 const MARKER_ICONS: Record<MarkerIcon, LucideIcon> = {
   pin: MapPin,
@@ -43,6 +47,21 @@ const MARKER_ICONS: Record<MarkerIcon, LucideIcon> = {
   gem: Gem,
   skull: Skull,
 };
+
+function arrowHeadPoints(
+  tipX: number,
+  tipY: number,
+  dx: number,
+  dy: number,
+  size: number,
+): string {
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+  return `${tipX},${tipY} ${tipX - ux * size + px * size * 0.5},${tipY - uy * size + py * size * 0.5} ${tipX - ux * size - px * size * 0.5},${tipY - uy * size - py * size * 0.5}`;
+}
 
 interface View {
   x: number;
@@ -100,6 +119,10 @@ export function GridCanvas() {
   const updateMarker = useMapStore((s) => s.updateMarker);
   const deleteMarker = useMapStore((s) => s.deleteMarker);
   const moveMarker = useMapStore((s) => s.moveMarker);
+  const zoneLinks = useMapStore((s) => s.zoneLinks);
+  const addZoneLink = useMapStore((s) => s.addZoneLink);
+  const updateZoneLink = useMapStore((s) => s.updateZoneLink);
+  const deleteZoneLink = useMapStore((s) => s.deleteZoneLink);
 
   const activeGame = games.find((g) => g.id === activeGameId) ?? null;
   const imgW = activeGame?.cellWidth ?? 0;
@@ -120,6 +143,7 @@ export function GridCanvas() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [dragMarker, setDragMarker] = useState<{ markerId: string; x: number; y: number } | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
@@ -132,6 +156,7 @@ export function GridCanvas() {
   const [menu, setMenu] = useState<
     | { kind: "tile"; tileId: string; x: number; y: number }
     | { kind: "marker"; markerId: string; x: number; y: number }
+    | { kind: "link"; linkId: string; x: number; y: number }
     | { kind: "empty"; gx: number; gy: number; x: number; y: number }
     | null
   >(null);
@@ -143,8 +168,21 @@ export function GridCanvas() {
     color: string;
     note: string;
   } | null>(null);
+  const [linkEditor, setLinkEditor] = useState<{
+    linkId: string;
+    label: string;
+    twoWay: boolean;
+    color: string;
+    note: string;
+  } | null>(null);
+  const [pendingLink, setPendingLink] = useState<{
+    fromTileId: string;
+    u: number;
+    v: number;
+  } | null>(null);
   const [hoverNote, setHoverNote] = useState<{ text: string; x: number; y: number } | null>(null);
   const interaction = useRef<Interaction>({ mode: "none" });
+  const pendingLinkEditor = useRef<{ linkId: string; tileId: string } | null>(null);
   const didFitRef = useRef(false);
 
   useEffect(() => {
@@ -256,15 +294,35 @@ export function GridCanvas() {
         e.preventDefault();
         void deleteTile(selectedId);
         setSelectedId(null);
+        setPendingLink((p) => (p?.fromTileId === selectedId ? null : p));
       } else if (selectedMarkerId) {
         e.preventDefault();
         void deleteMarker(selectedMarkerId);
         setSelectedMarkerId(null);
+      } else if (selectedLinkId) {
+        e.preventDefault();
+        void deleteZoneLink(selectedLinkId);
+        setSelectedLinkId(null);
       }
     };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pendingLink) setPendingLink(null);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, selectedMarkerId, deleteTile, deleteMarker]);
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [
+    selectedId,
+    selectedMarkerId,
+    selectedLinkId,
+    pendingLink,
+    deleteTile,
+    deleteMarker,
+    deleteZoneLink,
+  ]);
 
   // Fit the whole map into view once, when a game that already has rooms is loaded.
   useEffect(() => {
@@ -324,7 +382,19 @@ export function GridCanvas() {
     });
   };
 
-  const startPan = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const openLinkEditor = (linkId: string) => {
+    const link = zoneLinks.find((l) => l.id === linkId);
+    if (!link) return;
+    setLinkEditor({
+      linkId: link.id,
+      label: link.label,
+      twoWay: link.twoWay,
+      color: link.color,
+      note: link.note ?? "",
+    });
+  };
+
+  const startPan = (e: ReactPointerEvent<Element>) => {
     const el = containerRef.current;
     if (!el) return;
     e.preventDefault();
@@ -338,12 +408,45 @@ export function GridCanvas() {
     if (e.button === 0 && !isSpaceHeld) {
       setSelectedId(null);
       setSelectedMarkerId(null);
+      setSelectedLinkId(null);
+    }
+    if (e.button === 0 && pendingLink) {
+      setPendingLink(null);
+      return;
     }
     startPan(e);
   };
 
   const onTilePointerDown = (e: ReactPointerEvent<HTMLDivElement>, tile: Tile) => {
     if (e.button !== 0 && e.button !== 1) return;
+    if (pendingLink && e.button === 0 && !isSpaceHeld) {
+      e.stopPropagation();
+      if (tile.id === pendingLink.fromTileId) {
+        setPendingLink(null);
+        return;
+      }
+      if (cellW > 0 && cellH > 0) {
+        const w = screenToWorld(e.clientX, e.clientY);
+        const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
+        const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
+        const from = pendingLink;
+        setPendingLink(null);
+        void addZoneLink({
+          fromTileId: from.fromTileId,
+          fromU: from.u,
+          fromV: from.v,
+          toTileId: tile.id,
+          toU: u,
+          toV: v,
+          label: "Zone link",
+          twoWay: true,
+          color: DEFAULT_LINK_COLOR,
+        }).then((id) => {
+          if (id) pendingLinkEditor.current = { linkId: id, tileId: tile.id };
+        });
+      }
+      return;
+    }
     if (isSpaceHeld || e.button === 1) {
       e.stopPropagation();
       startPan(e);
@@ -354,6 +457,7 @@ export function GridCanvas() {
     if (!el) return;
     setSelectedId(tile.id);
     setSelectedMarkerId(null);
+    setSelectedLinkId(null);
     setDragTileId(tile.id);
     el.setPointerCapture(e.pointerId);
     const w = screenToWorld(e.clientX, e.clientY);
@@ -478,12 +582,32 @@ export function GridCanvas() {
   const fx = cellW > 0 ? (cellW + bleed) / cellW : 1;
   const fy = cellH > 0 ? (cellH + bleed) / cellH : 1;
 
+  let linkBounds: { left: number; top: number; w: number; h: number } | null = null;
+  if (zoneLinks.length > 0 && cellW > 0 && cellH > 0 && tiles.length > 0) {
+    let minGx = Infinity;
+    let minGy = Infinity;
+    let maxGx = -Infinity;
+    let maxGy = -Infinity;
+    for (const t of tiles) {
+      minGx = Math.min(minGx, t.gx);
+      minGy = Math.min(minGy, t.gy);
+      maxGx = Math.max(maxGx, t.gx);
+      maxGy = Math.max(maxGy, t.gy);
+    }
+    linkBounds = {
+      left: minGx * cellW,
+      top: minGy * cellH,
+      w: (maxGx - minGx + 1) * cellW,
+      h: (maxGy - minGy + 1) * cellH,
+    };
+  }
+
   return (
     <>
     <div
       ref={containerRef}
       className="relative h-full w-full touch-none overflow-hidden bg-muted/30 select-none"
-      style={{ cursor: isPanning ? "grabbing" : dragMarker ? "grabbing" : "grab" }}
+      style={{ cursor: isPanning || dragMarker ? "grabbing" : pendingLink ? "crosshair" : "grab" }}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -494,6 +618,7 @@ export function GridCanvas() {
       onContextMenu={(e) => {
         if (cellW <= 0 || cellH <= 0) return;
         e.preventDefault();
+        setPendingLink(null);
         const cell = cellAt(e.clientX, e.clientY);
         setMenu({ kind: "empty", gx: cell.gx, gy: cell.gy, x: e.clientX, y: e.clientY });
       }}
@@ -511,9 +636,23 @@ export function GridCanvas() {
             <div
               key={t.id}
               onPointerDown={(e) => onTilePointerDown(e, t)}
+              onClick={(e) => {
+                const pending = pendingLinkEditor.current;
+                if (!pending || pending.tileId !== t.id) return;
+                pendingLinkEditor.current = null;
+                e.stopPropagation();
+                setLinkEditor({
+                  linkId: pending.linkId,
+                  label: "Zone link",
+                  twoWay: true,
+                  color: DEFAULT_LINK_COLOR,
+                  note: "",
+                });
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setPendingLink(null);
                 setMenu({ kind: "tile", tileId: t.id, x: e.clientX, y: e.clientY });
               }}
               onMouseMove={(e) => {
@@ -525,7 +664,7 @@ export function GridCanvas() {
               className={cn(
                 "absolute overflow-hidden",
                 selectedId === t.id ? "z-10 outline-2 outline-primary" : "",
-                dragging ? "z-20 opacity-90" : "",
+                dragging ? "z-40 opacity-90" : "",
               )}
               style={{ left: x, top: y, width: cellW + bleed, height: cellH + bleed, cursor: isSpaceHeld ? "grab" : "move" }}
             >
@@ -580,6 +719,7 @@ export function GridCanvas() {
                 e.stopPropagation();
                 setSelectedMarkerId(m.id);
                 setSelectedId(null);
+                setSelectedLinkId(null);
                 const el = containerRef.current;
                 if (!el) return;
                 el.setPointerCapture(e.pointerId);
@@ -623,6 +763,112 @@ export function GridCanvas() {
             </div>
           );
         })}
+        {linkBounds && (
+          <svg
+            className="pointer-events-none absolute z-20"
+            style={{ left: linkBounds.left, top: linkBounds.top, width: linkBounds.w, height: linkBounds.h }}
+          >
+            {zoneLinks.map((link) => {
+              const from = tiles.find((t) => t.id === link.fromTileId);
+              const to = tiles.find((t) => t.id === link.toTileId);
+              if (!from || !to) return null;
+              const sx = from.gx * cellW + link.fromU * cellW - linkBounds.left;
+              const sy = from.gy * cellH + link.fromV * cellH - linkBounds.top;
+              const tx = to.gx * cellW + link.toU * cellW - linkBounds.left;
+              const ty = to.gy * cellH + link.toV * cellH - linkBounds.top;
+              const dx = tx - sx;
+              const dy = ty - sy;
+              const mx = (sx + tx) / 2;
+              const my = (sy + ty) / 2;
+              const headSize = 10 / view.scale;
+              const fs = 11 / view.scale;
+              const labelW = link.label.length * fs * 0.6 + 10;
+              const labelH = fs + 6;
+              const selected = selectedLinkId === link.id;
+              return (
+                <g
+                  key={link.id}
+                  className="pointer-events-auto cursor-pointer"
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 && e.button !== 1) return;
+                    if (isSpaceHeld || e.button === 1) {
+                      e.stopPropagation();
+                      startPan(e);
+                      return;
+                    }
+                    e.stopPropagation();
+                    setSelectedLinkId(link.id);
+                    setSelectedId(null);
+                    setSelectedMarkerId(null);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    openLinkEditor(link.id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelectedLinkId(link.id);
+                    setMenu({ kind: "link", linkId: link.id, x: e.clientX, y: e.clientY });
+                  }}
+                  onMouseEnter={(e) => {
+                    if (interaction.current.mode === "none") {
+                      setHoverNote({
+                        text: link.note ? `${link.label} — ${link.note}` : link.label,
+                        x: e.clientX,
+                        y: e.clientY,
+                      });
+                    }
+                  }}
+                  onMouseLeave={() => setHoverNote(null)}
+                >
+                  <path
+                    d={`M ${sx} ${sy} L ${tx} ${ty}`}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={14 / view.scale}
+                  />
+                  <line
+                    x1={sx}
+                    y1={sy}
+                    x2={tx}
+                    y2={ty}
+                    stroke={link.color}
+                    strokeWidth={2 / view.scale}
+                  />
+                  {link.twoWay ? (
+                    <>
+                      <polygon points={arrowHeadPoints(sx, sy, -dx, -dy, headSize)} fill={link.color} />
+                      <polygon points={arrowHeadPoints(tx, ty, dx, dy, headSize)} fill={link.color} />
+                    </>
+                  ) : (
+                    <polygon points={arrowHeadPoints(tx, ty, dx, dy, headSize)} fill={link.color} />
+                  )}
+                  <rect
+                    x={mx - labelW / 2}
+                    y={my - labelH / 2}
+                    width={labelW}
+                    height={labelH}
+                    rx={labelH / 2}
+                    fill="var(--popover)"
+                    stroke={selected ? "var(--primary)" : "var(--border)"}
+                    strokeWidth={selected ? 2 : 1}
+                  />
+                  <text
+                    x={mx}
+                    y={my}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={fs}
+                    fill="var(--popover-foreground)"
+                  >
+                    {link.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        )}
         {showGrid && cellW > 0 && cellH > 0 && (
           <div aria-hidden className="pointer-events-none absolute" style={gridStyle} />
         )}
@@ -655,6 +901,12 @@ export function GridCanvas() {
           style={{ left: hoverNote.x + 12, top: hoverNote.y + 12 }}
         >
           {hoverNote.text}
+        </div>
+      )}
+
+      {pendingLink && (
+        <div className="pointer-events-none absolute bottom-10 left-1/2 z-50 -translate-x-1/2 rounded-md bg-background/90 px-3 py-1.5 text-sm text-foreground shadow ring-1 ring-border">
+          Click the destination room to connect it · Esc to cancel
         </div>
       )}
 
@@ -743,9 +995,26 @@ export function GridCanvas() {
                   Add marker here…
                 </button>
                 <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const target = menu;
+                    const tile = tiles.find((t) => t.id === target.tileId);
+                    setMenu(null);
+                    if (!tile || cellW <= 0 || cellH <= 0) return;
+                    const w = screenToWorld(target.x, target.y);
+                    const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
+                    const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
+                    setPendingLink({ fromTileId: tile.id, u, v });
+                  }}
+                >
+                  <Link2 className="size-4" />
+                  Connect to…
+                </button>
+                <button
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-destructive/10"
                   onClick={() => {
                     void deleteTile(menu.tileId);
+                    setPendingLink(null);
                     setMenu(null);
                   }}
                 >
@@ -777,6 +1046,32 @@ export function GridCanvas() {
                 >
                   <Trash2 className="size-4" />
                   Delete marker
+                </button>
+              </>
+            )}
+            {menu.kind === "link" && (
+              <>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    const linkId = menu.linkId;
+                    setMenu(null);
+                    openLinkEditor(linkId);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                  Edit link…
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-destructive/10"
+                  onClick={() => {
+                    void deleteZoneLink(menu.linkId);
+                    setSelectedLinkId(null);
+                    setMenu(null);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  Delete link
                 </button>
               </>
             )}
@@ -891,6 +1186,84 @@ export function GridCanvas() {
                   });
                 }
                 setMarkerEditor(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={linkEditor !== null} onOpenChange={(open) => { if (!open) setLinkEditor(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Zone link</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <input
+              className="rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              placeholder="Label (e.g. Zone 1 → Zone 2)"
+              value={linkEditor?.label ?? ""}
+              onChange={(e) => setLinkEditor((s) => (s ? { ...s, label: e.target.value } : s))}
+            />
+            <div className="flex gap-1">
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm",
+                  linkEditor?.twoWay
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border text-muted-foreground hover:bg-accent",
+                )}
+                onClick={() => setLinkEditor((s) => (s ? { ...s, twoWay: true } : s))}
+              >
+                <ArrowLeftRight className="size-4" />
+                Both ways
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm",
+                  linkEditor?.twoWay === false
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border text-muted-foreground hover:bg-accent",
+                )}
+                onClick={() => setLinkEditor((s) => (s ? { ...s, twoWay: false } : s))}
+              >
+                <ArrowRight className="size-4" />
+                One way
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Color
+              <input
+                type="color"
+                className="size-8 cursor-pointer rounded border border-input bg-transparent p-0.5"
+                value={linkEditor?.color ?? DEFAULT_LINK_COLOR}
+                onChange={(e) => setLinkEditor((s) => (s ? { ...s, color: e.target.value } : s))}
+              />
+            </label>
+            <textarea
+              className="min-h-20 w-full resize-none rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              placeholder="Requirement — when can the player use this link? (e.g. needs double jump, opens after boss)"
+              value={linkEditor?.note ?? ""}
+              onChange={(e) => setLinkEditor((s) => (s ? { ...s, note: e.target.value } : s))}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkEditor(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (linkEditor) {
+                  void updateZoneLink(linkEditor.linkId, {
+                    label: linkEditor.label,
+                    twoWay: linkEditor.twoWay,
+                    color: linkEditor.color,
+                    note: linkEditor.note.trim() || undefined,
+                  });
+                }
+                setLinkEditor(null);
               }}
             >
               Save

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as db from "@/lib/db";
 import { importGameZip } from "@/lib/backup";
-import type { CropKey, Game, ImageRec, MarkerIcon, RoomMarker, Tile } from "@/lib/types";
+import type { CropKey, Game, ImageRec, MarkerIcon, RoomMarker, Tile, ZoneLink } from "@/lib/types";
 
 let initStarted = false;
 
@@ -36,6 +36,7 @@ interface MapState {
   activeGameId: string | null;
   tiles: Tile[];
   markers: RoomMarker[];
+  zoneLinks: ZoneLink[];
   images: Record<string, ImageRec>;
   urls: Record<string, string>;
   ready: boolean;
@@ -66,6 +67,23 @@ interface MapState {
   ) => Promise<void>;
   moveMarker: (id: string, tileId: string, u: number, v: number) => Promise<void>;
   deleteMarker: (id: string) => Promise<void>;
+  addZoneLink: (data: {
+    fromTileId: string;
+    fromU: number;
+    fromV: number;
+    toTileId: string;
+    toU: number;
+    toV: number;
+    label: string;
+    twoWay: boolean;
+    color: string;
+    note?: string;
+  }) => Promise<string | null>;
+  updateZoneLink: (
+    id: string,
+    patch: Partial<Pick<ZoneLink, "label" | "twoWay" | "color" | "note">>,
+  ) => Promise<void>;
+  deleteZoneLink: (id: string) => Promise<void>;
   importBackup: (file: File) => Promise<void>;
 }
 
@@ -74,6 +92,7 @@ export const useMapStore = create<MapState>((set, get) => ({
   activeGameId: null,
   tiles: [],
   markers: [],
+  zoneLinks: [],
   images: {},
   urls: {},
   ready: false,
@@ -126,7 +145,7 @@ export const useMapStore = create<MapState>((set, get) => ({
     set((s) => ({ games: s.games.filter((g) => g.id !== id) }));
     if (wasActive) {
       for (const url of Object.values(get().urls)) URL.revokeObjectURL(url);
-      set({ activeGameId: null, tiles: [], markers: [], images: {}, urls: {} });
+      set({ activeGameId: null, tiles: [], markers: [], zoneLinks: [], images: {}, urls: {} });
       const next = get().games[0]?.id ?? null;
       if (next) await get().selectGame(next);
       else await db.setMeta("lastOpenedGameId", undefined);
@@ -135,10 +154,11 @@ export const useMapStore = create<MapState>((set, get) => ({
 
   selectGame: async (id) => {
     for (const url of Object.values(get().urls)) URL.revokeObjectURL(url);
-    const [tiles, imageList, markers] = await Promise.all([
+    const [tiles, imageList, markers, zoneLinks] = await Promise.all([
       db.getTiles(id),
       db.getImages(id),
       db.getMarkers(id),
+      db.getZoneLinks(id),
     ]);
     const images: Record<string, ImageRec> = {};
     const urls: Record<string, string> = {};
@@ -146,7 +166,7 @@ export const useMapStore = create<MapState>((set, get) => ({
       images[img.id] = img;
       urls[img.id] = URL.createObjectURL(img.blob);
     }
-    set({ activeGameId: id, tiles, markers, images, urls });
+    set({ activeGameId: id, tiles, markers, zoneLinks, images, urls });
     await db.setMeta("lastOpenedGameId", id);
   },
 
@@ -229,6 +249,9 @@ export const useMapStore = create<MapState>((set, get) => ({
       return {
         tiles: s.tiles.filter((t) => t.id !== tileId),
         markers: s.markers.filter((m) => m.tileId !== tileId),
+        zoneLinks: s.zoneLinks.filter(
+          (l) => l.fromTileId !== tileId && l.toTileId !== tileId,
+        ),
         images,
         urls,
       };
@@ -302,6 +325,46 @@ export const useMapStore = create<MapState>((set, get) => ({
   deleteMarker: async (id) => {
     await db.deleteMarker(id);
     set((s) => ({ markers: s.markers.filter((m) => m.id !== id) }));
+  },
+
+  addZoneLink: async (data) => {
+    const gameId = get().activeGameId;
+    if (!gameId) return null;
+    const tiles = get().tiles;
+    const fromExists = tiles.some((t) => t.id === data.fromTileId);
+    const toExists = tiles.some((t) => t.id === data.toTileId);
+    if (!fromExists || !toExists || data.fromTileId === data.toTileId) return null;
+    const link: ZoneLink = {
+      id: crypto.randomUUID(),
+      gameId,
+      fromTileId: data.fromTileId,
+      fromU: Math.min(1, Math.max(0, data.fromU)),
+      fromV: Math.min(1, Math.max(0, data.fromV)),
+      toTileId: data.toTileId,
+      toU: Math.min(1, Math.max(0, data.toU)),
+      toV: Math.min(1, Math.max(0, data.toV)),
+      label: data.label,
+      twoWay: data.twoWay,
+      color: data.color,
+      note: data.note,
+      createdAt: Date.now(),
+    };
+    await db.putZoneLink(link);
+    set((s) => ({ zoneLinks: [...s.zoneLinks, link] }));
+    return link.id;
+  },
+
+  updateZoneLink: async (id, patch) => {
+    const link = get().zoneLinks.find((l) => l.id === id);
+    if (!link) return;
+    const updated: ZoneLink = { ...link, ...patch };
+    await db.putZoneLink(updated);
+    set((s) => ({ zoneLinks: s.zoneLinks.map((l) => (l.id === id ? updated : l)) }));
+  },
+
+  deleteZoneLink: async (id) => {
+    await db.deleteZoneLink(id);
+    set((s) => ({ zoneLinks: s.zoneLinks.filter((l) => l.id !== id) }));
   },
 
   importBackup: async (file) => {

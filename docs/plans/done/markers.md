@@ -1,6 +1,6 @@
 # Markers — Plan
 
-**Status:** in progress
+**Status:** done
 **Owner:** Pierre
 **Last updated:** 2026-08-17
 
@@ -111,9 +111,9 @@ export interface ZoneLink {
 - [x] Room marker pins on canvas + right-click "Add marker here…".
 - [x] Marker editor dialog + select/Delete key.
 - [x] Marker dragging (reposition within a room / drop onto another room).
-- [ ] Zone links: "Connect to…" pending mode + SVG arrows + badge.
-- [ ] Zone link editor (twoWay + requirement note).
+- [x] Zone links: "Connect to…" pending mode + SVG arrows + badge.
+- [x] Zone link editor (twoWay + requirement note).
 - [x] Zip backup carries markers (export + import, tile ids remapped).
-- [ ] PNG export includes markers/links.
+- [x] PNG export includes markers/links.
 - [x] Build + lint + docs (`features.md`, `TODO.md`, `codebase.md`) — Phase 1.
-- [ ] Plan moved to `done/` after Phase 2 (zone links).
+- [x] Plan moved to `done/` in the final commit.

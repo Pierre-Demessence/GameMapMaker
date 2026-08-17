@@ -1,7 +1,7 @@
 import { strFromU8, strToU8, unzip, zip } from "fflate";
 import type { Zippable } from "fflate";
 import * as db from "@/lib/db";
-import type { Game, MarkerIcon, RoomMarker } from "@/lib/types";
+import type { Game, MarkerIcon, RoomMarker, ZoneLink } from "@/lib/types";
 
 interface ManifestImage {
   id: string;
@@ -30,6 +30,19 @@ interface ManifestMarker {
   note?: string;
 }
 
+interface ManifestZoneLink {
+  fromTileId: string;
+  fromU: number;
+  fromV: number;
+  toTileId: string;
+  toU: number;
+  toV: number;
+  label: string;
+  twoWay: boolean;
+  color: string;
+  note?: string;
+}
+
 interface Manifest {
   version: 1;
   game: {
@@ -44,6 +57,7 @@ interface Manifest {
   images: ManifestImage[];
   tiles: ManifestTile[];
   markers?: ManifestMarker[];
+  zoneLinks?: ManifestZoneLink[];
 }
 
 function extForType(type: string): string {
@@ -82,10 +96,11 @@ export async function exportGameZip(
 ): Promise<{ blob: Blob; filename: string } | null> {
   const game = await db.getGame(gameId);
   if (!game) return null;
-  const [tiles, images, markers] = await Promise.all([
+  const [tiles, images, markers, zoneLinks] = await Promise.all([
     db.getTiles(gameId),
     db.getImages(gameId),
     db.getMarkers(gameId),
+    db.getZoneLinks(gameId),
   ]);
 
   const files: Zippable = {};
@@ -126,6 +141,18 @@ export async function exportGameZip(
       color: m.color,
       note: m.note,
     })),
+    zoneLinks: zoneLinks.map((l) => ({
+      fromTileId: l.fromTileId,
+      fromU: l.fromU,
+      fromV: l.fromV,
+      toTileId: l.toTileId,
+      toU: l.toU,
+      toV: l.toV,
+      label: l.label,
+      twoWay: l.twoWay,
+      color: l.color,
+      note: l.note,
+    })),
   };
   files["manifest.json"] = [strToU8(JSON.stringify(manifest, null, 2)), { level: 6 }];
 
@@ -147,7 +174,8 @@ export async function importGameZip(file: File): Promise<string> {
     typeof manifest.game.cellHeight !== "number" ||
     !Array.isArray(manifest.images) ||
     !Array.isArray(manifest.tiles) ||
-    (manifest.markers !== undefined && !Array.isArray(manifest.markers))
+    (manifest.markers !== undefined && !Array.isArray(manifest.markers)) ||
+    (manifest.zoneLinks !== undefined && !Array.isArray(manifest.zoneLinks))
   ) {
     throw new Error("Unsupported or corrupted backup file.");
   }
@@ -226,6 +254,28 @@ export async function importGameZip(file: File): Promise<string> {
       createdAt: now,
     };
     await db.putMarker(roomMarker);
+  }
+
+  for (const link of manifest.zoneLinks ?? []) {
+    const fromTileId = tileIdMap.get(link.fromTileId);
+    const toTileId = tileIdMap.get(link.toTileId);
+    if (!fromTileId || !toTileId || fromTileId === toTileId) continue;
+    const zoneLink: ZoneLink = {
+      id: crypto.randomUUID(),
+      gameId,
+      fromTileId,
+      fromU: Math.min(1, Math.max(0, typeof link.fromU === "number" ? link.fromU : 0.5)),
+      fromV: Math.min(1, Math.max(0, typeof link.fromV === "number" ? link.fromV : 0.5)),
+      toTileId,
+      toU: Math.min(1, Math.max(0, typeof link.toU === "number" ? link.toU : 0.5)),
+      toV: Math.min(1, Math.max(0, typeof link.toV === "number" ? link.toV : 0.5)),
+      label: typeof link.label === "string" ? link.label : "Zone link",
+      twoWay: link.twoWay !== false,
+      color: typeof link.color === "string" ? link.color : "#3b82f6",
+      note: link.note,
+      createdAt: now,
+    };
+    await db.putZoneLink(zoneLink);
   }
 
   return gameId;

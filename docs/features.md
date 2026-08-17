@@ -37,6 +37,19 @@ on startup. Each game has its own grid size and images.
   shows its label and note.
 - Markers are stored with the game and included in the zip backup.
 
+## Zone links
+
+- **Add**: right-click a room → *Connect to…*, then click the destination room. Zones can
+  sit far apart on the map; the link is drawn as an arrow between the two rooms.
+- **Direction**: *Both ways* (teleport in either direction) or *One way* (exit-only).
+- **Requirement**: an optional note describing when the player can use the link
+  (e.g. "needs double jump", "opens after boss").
+- **Edit**: double-click a link, or right-click → *Edit link…*; **delete** via
+  `Delete`/`Backspace` or the right-click menu. Hovering shows the requirement.
+- Links are stored with the game, included in the zip backup, and drawn into the PNG
+  export (with labels), along with markers. In the PNG, links touching a placeholder room
+  are skipped — like the placeholder itself.
+
 ## Crop
 
 The *Crop* panel trims the same top / right / bottom / left margin from every image — useful

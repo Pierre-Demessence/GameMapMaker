@@ -121,6 +121,18 @@ export async function deleteZoneLinksForTile(tileId: string): Promise<void> {
   await tx.done;
 }
 
+export async function getZoneLinks(gameId: string): Promise<ZoneLink[]> {
+  return (await getDB()).getAllFromIndex("zoneLinks", "by-game", gameId);
+}
+
+export async function putZoneLink(link: ZoneLink): Promise<void> {
+  await (await getDB()).put("zoneLinks", link);
+}
+
+export async function deleteZoneLink(id: string): Promise<void> {
+  await (await getDB()).delete("zoneLinks", id);
+}
+
 export async function getMeta<T>(key: string): Promise<T | undefined> {
   return (await getDB()).get("meta", key) as Promise<T | undefined>;
 }
