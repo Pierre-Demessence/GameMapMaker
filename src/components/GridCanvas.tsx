@@ -73,7 +73,8 @@ type Interaction =
   | { mode: "none" }
   | { mode: "pan"; pointerId: number; lastX: number; lastY: number }
   | { mode: "drag"; pointerId: number; tileId: string; grabX: number; grabY: number }
-  | { mode: "marker-drag"; pointerId: number; markerId: string };
+  | { mode: "marker-drag"; pointerId: number; markerId: string }
+  | { mode: "link-end-drag"; pointerId: number; linkId: string; end: "from" | "to" };
 
 function computeFitView(
   rect: { width: number; height: number },
@@ -122,6 +123,7 @@ export function GridCanvas() {
   const zoneLinks = useMapStore((s) => s.zoneLinks);
   const addZoneLink = useMapStore((s) => s.addZoneLink);
   const updateZoneLink = useMapStore((s) => s.updateZoneLink);
+  const moveZoneLinkEnd = useMapStore((s) => s.moveZoneLinkEnd);
   const deleteZoneLink = useMapStore((s) => s.deleteZoneLink);
 
   const activeGame = games.find((g) => g.id === activeGameId) ?? null;
@@ -145,6 +147,12 @@ export function GridCanvas() {
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [dragMarker, setDragMarker] = useState<{ markerId: string; x: number; y: number } | null>(null);
+  const [dragLinkEnd, setDragLinkEnd] = useState<{
+    linkId: string;
+    end: "from" | "to";
+    x: number;
+    y: number;
+  } | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -487,6 +495,9 @@ export function GridCanvas() {
     } else if (it.mode === "marker-drag") {
       const w = screenToWorld(e.clientX, e.clientY);
       setDragMarker({ markerId: it.markerId, x: w.x, y: w.y });
+    } else if (it.mode === "link-end-drag") {
+      const w = screenToWorld(e.clientX, e.clientY);
+      setDragLinkEnd({ linkId: it.linkId, end: it.end, x: w.x, y: w.y });
     }
   };
 
@@ -495,6 +506,7 @@ export function GridCanvas() {
     setDragPos(null);
     setDragTileId(null);
     setDragMarker(null);
+    setDragLinkEnd(null);
     setIsPanning(false);
   };
 
@@ -517,6 +529,24 @@ export function GridCanvas() {
           const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
           const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
           void moveMarker(it.markerId, tile.id, u, v);
+        }
+      }
+    } else if (it.mode === "link-end-drag" && cellW > 0 && cellH > 0) {
+      const w = screenToWorld(e.clientX, e.clientY);
+      const link = zoneLinks.find((l) => l.id === it.linkId);
+      const tile = tileAtPoint(w.x, w.y);
+      if (link && tile) {
+        const anchor =
+          it.end === "from"
+            ? { tileId: link.fromTileId, u: link.fromU, v: link.fromV }
+            : { tileId: link.toTileId, u: link.toU, v: link.toV };
+        const anchorTile = tiles.find((t) => t.id === anchor.tileId);
+        const ax = anchorTile ? anchorTile.gx * cellW + anchor.u * cellW : w.x;
+        const ay = anchorTile ? anchorTile.gy * cellH + anchor.v * cellH : w.y;
+        if (Math.hypot(w.x - ax, w.y - ay) * viewRef.current.scale >= 4) {
+          const u = Math.min(1, Math.max(0, (w.x - tile.gx * cellW) / cellW));
+          const v = Math.min(1, Math.max(0, (w.y - tile.gy * cellH) / cellH));
+          void moveZoneLinkEnd(it.linkId, it.end, tile.id, u, v);
         }
       }
     }
@@ -607,7 +637,7 @@ export function GridCanvas() {
     <div
       ref={containerRef}
       className="relative h-full w-full touch-none overflow-hidden bg-muted/30 select-none"
-      style={{ cursor: isPanning || dragMarker ? "grabbing" : pendingLink ? "crosshair" : "grab" }}
+      style={{ cursor: isPanning || dragMarker || dragLinkEnd ? "grabbing" : pendingLink ? "crosshair" : "grab" }}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -772,10 +802,15 @@ export function GridCanvas() {
               const from = tiles.find((t) => t.id === link.fromTileId);
               const to = tiles.find((t) => t.id === link.toTileId);
               if (!from || !to) return null;
-              const sx = from.gx * cellW + link.fromU * cellW - linkBounds.left;
-              const sy = from.gy * cellH + link.fromV * cellH - linkBounds.top;
-              const tx = to.gx * cellW + link.toU * cellW - linkBounds.left;
-              const ty = to.gy * cellH + link.toV * cellH - linkBounds.top;
+              const dle = dragLinkEnd && dragLinkEnd.linkId === link.id ? dragLinkEnd : null;
+              const sx =
+                dle?.end === "from" ? dle.x - linkBounds.left : from.gx * cellW + link.fromU * cellW - linkBounds.left;
+              const sy =
+                dle?.end === "from" ? dle.y - linkBounds.top : from.gy * cellH + link.fromV * cellH - linkBounds.top;
+              const tx =
+                dle?.end === "to" ? dle.x - linkBounds.left : to.gx * cellW + link.toU * cellW - linkBounds.left;
+              const ty =
+                dle?.end === "to" ? dle.y - linkBounds.top : to.gy * cellH + link.toV * cellH - linkBounds.top;
               const dx = tx - sx;
               const dy = ty - sy;
               const mx = (sx + tx) / 2;
@@ -844,6 +879,84 @@ export function GridCanvas() {
                   ) : (
                     <polygon points={arrowHeadPoints(tx, ty, dx, dy, headSize)} fill={link.color} />
                   )}
+                  <circle
+                    cx={sx}
+                    cy={sy}
+                    r={5 / view.scale}
+                    fill={link.color}
+                    stroke="var(--background)"
+                    strokeWidth={1.5 / view.scale}
+                    className="pointer-events-none"
+                  />
+                  <circle
+                    cx={sx}
+                    cy={sy}
+                    r={9 / view.scale}
+                    fill="transparent"
+                    className="cursor-grab"
+                    onPointerDown={(e) => {
+                      if (e.button !== 0 && e.button !== 1) return;
+                      if (isSpaceHeld || e.button === 1) {
+                        e.stopPropagation();
+                        startPan(e);
+                        return;
+                      }
+                      e.stopPropagation();
+                      setSelectedLinkId(link.id);
+                      setSelectedId(null);
+                      setSelectedMarkerId(null);
+                      const el = containerRef.current;
+                      if (!el) return;
+                      el.setPointerCapture(e.pointerId);
+                      const w = screenToWorld(e.clientX, e.clientY);
+                      setDragLinkEnd({ linkId: link.id, end: "from", x: w.x, y: w.y });
+                      interaction.current = {
+                        mode: "link-end-drag",
+                        pointerId: e.pointerId,
+                        linkId: link.id,
+                        end: "from",
+                      };
+                    }}
+                  />
+                  <circle
+                    cx={tx}
+                    cy={ty}
+                    r={5 / view.scale}
+                    fill={link.color}
+                    stroke="var(--background)"
+                    strokeWidth={1.5 / view.scale}
+                    className="pointer-events-none"
+                  />
+                  <circle
+                    cx={tx}
+                    cy={ty}
+                    r={9 / view.scale}
+                    fill="transparent"
+                    className="cursor-grab"
+                    onPointerDown={(e) => {
+                      if (e.button !== 0 && e.button !== 1) return;
+                      if (isSpaceHeld || e.button === 1) {
+                        e.stopPropagation();
+                        startPan(e);
+                        return;
+                      }
+                      e.stopPropagation();
+                      setSelectedLinkId(link.id);
+                      setSelectedId(null);
+                      setSelectedMarkerId(null);
+                      const el = containerRef.current;
+                      if (!el) return;
+                      el.setPointerCapture(e.pointerId);
+                      const w = screenToWorld(e.clientX, e.clientY);
+                      setDragLinkEnd({ linkId: link.id, end: "to", x: w.x, y: w.y });
+                      interaction.current = {
+                        mode: "link-end-drag",
+                        pointerId: e.pointerId,
+                        linkId: link.id,
+                        end: "to",
+                      };
+                    }}
+                  />
                   <rect
                     x={mx - labelW / 2}
                     y={my - labelH / 2}

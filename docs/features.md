@@ -41,6 +41,8 @@ on startup. Each game has its own grid size and images.
 
 - **Add**: right-click a room → *Connect to…*, then click the destination room. Zones can
   sit far apart on the map; the link is drawn as an arrow between the two rooms.
+- **Move ends**: drag either end circle to reposition it, or drop it on another room to
+  re-anchor that end there. Dropping in empty space cancels the move.
 - **Direction**: *Both ways* (teleport in either direction) or *One way* (exit-only).
 - **Requirement**: an optional note describing when the player can use the link
   (e.g. "needs double jump", "opens after boss").

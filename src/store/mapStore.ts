@@ -83,6 +83,13 @@ interface MapState {
     id: string,
     patch: Partial<Pick<ZoneLink, "label" | "twoWay" | "color" | "note">>,
   ) => Promise<void>;
+  moveZoneLinkEnd: (
+    id: string,
+    end: "from" | "to",
+    tileId: string,
+    u: number,
+    v: number,
+  ) => Promise<void>;
   deleteZoneLink: (id: string) => Promise<void>;
   importBackup: (file: File) => Promise<void>;
 }
@@ -358,6 +365,21 @@ export const useMapStore = create<MapState>((set, get) => ({
     const link = get().zoneLinks.find((l) => l.id === id);
     if (!link) return;
     const updated: ZoneLink = { ...link, ...patch };
+    await db.putZoneLink(updated);
+    set((s) => ({ zoneLinks: s.zoneLinks.map((l) => (l.id === id ? updated : l)) }));
+  },
+
+  moveZoneLinkEnd: async (id, end, tileId, u, v) => {
+    const link = get().zoneLinks.find((l) => l.id === id);
+    if (!link) return;
+    if (!get().tiles.some((t) => t.id === tileId)) return;
+    const cu = Math.min(1, Math.max(0, u));
+    const cv = Math.min(1, Math.max(0, v));
+    const updated: ZoneLink =
+      end === "from"
+        ? { ...link, fromTileId: tileId, fromU: cu, fromV: cv }
+        : { ...link, toTileId: tileId, toU: cu, toV: cv };
+    if (updated.fromTileId === updated.toTileId) return;
     await db.putZoneLink(updated);
     set((s) => ({ zoneLinks: s.zoneLinks.map((l) => (l.id === id ? updated : l)) }));
   },
